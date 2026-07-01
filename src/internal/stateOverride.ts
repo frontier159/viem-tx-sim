@@ -1,6 +1,6 @@
-import type { Address, Hex } from 'viem';
+import type { Address, Hex, StateOverride } from "viem";
 
-import { addressKey, normalizeAddress } from './address.js';
+import { addressKey, normalizeAddress } from "./address.js";
 
 export type StorageOverride = {
   address: Address;
@@ -8,7 +8,9 @@ export type StorageOverride = {
   value: Hex;
 };
 
-export type StateOverrideEntry = {
+export type StateOverrideEntry = StateOverride[number];
+
+type MutableStateOverrideEntry = {
   address: Address;
   code?: Hex;
   balance?: bigint;
@@ -18,8 +20,8 @@ export type StateOverrideEntry = {
   }[];
 };
 
-export function buildStateOverride(entries: StateOverrideEntry[]): StateOverrideEntry[] {
-  const merged = new Map<string, StateOverrideEntry>();
+export function buildStateOverride(entries: readonly StateOverrideEntry[]): StateOverride {
+  const merged = new Map<string, MutableStateOverrideEntry>();
 
   for (const entry of entries) {
     const normalized = normalizeAddress(entry.address);
@@ -29,7 +31,9 @@ export function buildStateOverride(entries: StateOverrideEntry[]): StateOverride
     if (entry.code) existing.code = entry.code;
     if (entry.balance !== undefined) existing.balance = entry.balance;
     if (entry.stateDiff) {
-      const bySlot = new Map((existing.stateDiff ?? []).map((item) => [item.slot.toLowerCase(), item]));
+      const bySlot = new Map(
+        (existing.stateDiff ?? []).map((item) => [item.slot.toLowerCase(), item]),
+      );
       for (const diff of entry.stateDiff) bySlot.set(diff.slot.toLowerCase(), diff);
       existing.stateDiff = [...bySlot.values()];
     }
@@ -37,7 +41,7 @@ export function buildStateOverride(entries: StateOverrideEntry[]): StateOverride
     merged.set(key, existing);
   }
 
-  return [...merged.values()].map((entry) => {
+  return [...merged.values()].map((entry): StateOverrideEntry => {
     if (entry.stateDiff?.length === 0) {
       const { stateDiff, ...rest } = entry;
       void stateDiff;
@@ -47,8 +51,8 @@ export function buildStateOverride(entries: StateOverrideEntry[]): StateOverride
   });
 }
 
-export function storageOverridesToStateDiff(overrides: readonly StorageOverride[]): StateOverrideEntry[] {
-  const byAddress = new Map<string, StateOverrideEntry>();
+export function storageOverridesToStateDiff(overrides: readonly StorageOverride[]): StateOverride {
+  const byAddress = new Map<string, MutableStateOverrideEntry>();
 
   for (const override of overrides) {
     const normalized = normalizeAddress(override.address);

@@ -1,5 +1,5 @@
-import type { Address } from 'viem';
-import { getAddress } from 'viem';
+import type { Address } from "viem";
+import { getAddress } from "viem";
 
 export function normalizeAddress(address: Address): Address {
   return getAddress(address);

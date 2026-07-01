@@ -1,45 +1,61 @@
-import type { Address, BlockTag, Hex, PublicClient } from 'viem';
+import type {
+  AccessList,
+  Address,
+  BlockTag,
+  CreateAccessListParameters,
+  Hex,
+  PublicClient,
+} from "viem";
 
-import { AccessListUnsupportedError } from '../errors.js';
-import type { SimulationDebug } from '../types.js';
-import { withRpcDebug } from './debug.js';
+import { AccessListUnsupportedError } from "../errors.js";
+import type { SimulationDebug } from "../types.js";
+import { withRpcDebug } from "./debug.js";
 
 export type BlockOptions = {
   blockNumber?: bigint;
   blockTag?: BlockTag;
 };
 
-export type AccessListEntry = {
-  address: Address;
-  storageKeys: Hex[];
-};
+export type AccessListEntry = AccessList[number];
 
-export async function createAccessList(args: {
-  client: PublicClient;
-  from: Address;
-  to: Address;
-  data: Hex;
-  value?: bigint;
-  gas?: bigint;
-  debug?: SimulationDebug;
-  debugStep?: string;
-} & BlockOptions): Promise<AccessListEntry[]> {
-  const request = {
+export async function createAccessList(
+  args: {
+    client: PublicClient;
+    from: Address;
+    to: Address;
+    data: Hex;
+    value?: bigint;
+    gas?: bigint;
+    debug?: SimulationDebug;
+    debugStep?: string;
+  } & BlockOptions,
+): Promise<AccessList> {
+  const baseRequest = {
     account: args.from,
     to: args.to,
     data: args.data,
     value: args.value ?? 0n,
-    gas: args.gas,
-    blockNumber: args.blockNumber,
-    blockTag: args.blockTag,
   };
+  const request = (
+    args.blockNumber !== undefined
+      ? {
+          ...baseRequest,
+          ...(args.gas !== undefined ? { gas: args.gas } : {}),
+          blockNumber: args.blockNumber,
+        }
+      : {
+          ...baseRequest,
+          ...(args.gas !== undefined ? { gas: args.gas } : {}),
+          ...(args.blockTag !== undefined ? { blockTag: args.blockTag } : {}),
+        }
+  ) satisfies CreateAccessListParameters;
 
   try {
-    const result = await withRpcDebug<{ accessList?: AccessListEntry[] }>(
+    const result = await withRpcDebug(
       args.debug,
       {
-        method: 'eth_createAccessList',
-        step: args.debugStep ?? 'createAccessList',
+        method: "eth_createAccessList",
+        step: args.debugStep ?? "createAccessList",
         details: {
           from: args.from,
           to: args.to,
@@ -47,12 +63,12 @@ export async function createAccessList(args: {
           hasGas: args.gas !== undefined,
         },
       },
-      () => (args.client as any).createAccessList(request),
+      () => args.client.createAccessList(request),
     );
-    return (result?.accessList ?? []) as AccessListEntry[];
+    return result.accessList;
   } catch (cause) {
     if (isExecutionRevert(cause)) return [];
-    throw new AccessListUnsupportedError(formatRpcError('eth_createAccessList failed', cause));
+    throw new AccessListUnsupportedError(formatRpcError("eth_createAccessList failed", cause));
   }
 }
 

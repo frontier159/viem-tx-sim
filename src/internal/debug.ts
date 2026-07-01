@@ -1,7 +1,7 @@
-import type { SimulationDebug, SimulationDebugEvent } from '../types.js';
+import type { SimulationDebug, SimulationDebugEvent } from "../types.js";
 
 export function emitDebug(debug: SimulationDebug | undefined, event: SimulationDebugEvent): void {
-  if (typeof debug === 'function') {
+  if (typeof debug === "function") {
     debug(event);
     return;
   }
@@ -13,20 +13,20 @@ export function emitDebug(debug: SimulationDebug | undefined, event: SimulationD
 
 export async function withRpcDebug<T>(
   debug: SimulationDebug | undefined,
-  event: Omit<SimulationDebugEvent, 'phase'>,
+  event: Omit<SimulationDebugEvent, "phase">,
   run: () => Promise<T>,
 ): Promise<T> {
   const startedAt = Date.now();
-  emitDebug(debug, { ...event, phase: 'start' });
+  emitDebug(debug, { ...event, phase: "start" });
 
   try {
     const result = await run();
-    emitDebug(debug, { ...event, phase: 'success', durationMs: Date.now() - startedAt });
+    emitDebug(debug, { ...event, phase: "success", durationMs: Date.now() - startedAt });
     return result;
   } catch (error) {
     emitDebug(debug, {
       ...event,
-      phase: 'error',
+      phase: "error",
       durationMs: Date.now() - startedAt,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -35,8 +35,9 @@ export async function withRpcDebug<T>(
 }
 
 function envDebugEnabled(): boolean {
-  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
-  return env?.VIEM_TX_SIM_DEBUG_RPC === '1' || env?.DEBUG_RPC === '1';
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+    ?.env;
+  return env?.VIEM_TX_SIM_DEBUG_RPC === "1" || env?.DEBUG_RPC === "1";
 }
 
 function formatDebugEvent(event: SimulationDebugEvent): string {
@@ -47,11 +48,11 @@ function formatDebugEvent(event: SimulationDebugEvent): string {
     ...Object.entries(event.details ?? {}).map(([key, value]) => `${key}=${formatValue(value)}`),
     ...(event.error ? [`error=${event.error}`] : []),
   ];
-  return parts.join(' ');
+  return parts.join(" ");
 }
 
 function formatValue(value: unknown): string {
-  if (typeof value === 'bigint') return value.toString();
-  if (Array.isArray(value)) return `[${value.map(formatValue).join(',')}]`;
+  if (typeof value === "bigint") return value.toString();
+  if (Array.isArray(value)) return `[${value.map(formatValue).join(",")}]`;
   return String(value);
 }

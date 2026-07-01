@@ -1,15 +1,14 @@
-import type { Address, Hex, PublicClient } from 'viem';
-import { encodeFunctionData } from 'viem';
+import type { Address, CallParameters, Hex, PublicClient, StateOverride } from "viem";
+import { encodeFunctionData } from "viem";
 
-import type { SimulationDebug } from '../types.js';
-import { erc20ProbeAbi } from './abi.js';
-import { addressKey } from './address.js';
-import { withRpcDebug } from './debug.js';
-import type { BlockOptions } from './rpc.js';
-import { createAccessList } from './rpc.js';
-import type { StateOverrideEntry } from './stateOverride.js';
-import { uint256Hex } from './hex.js';
-import { getCallData } from './hex.js';
+import type { SimulationDebug } from "../types.js";
+import { erc20ProbeAbi } from "./abi.js";
+import { addressKey } from "./address.js";
+import { withRpcDebug } from "./debug.js";
+import type { BlockOptions } from "./rpc.js";
+import { createAccessList } from "./rpc.js";
+import { uint256Hex } from "./hex.js";
+import { getCallData } from "./hex.js";
 
 export type TokenBalanceSlot = {
   token: Address;
@@ -23,17 +22,19 @@ export type AllowanceSlot = {
   currentAllowance: bigint;
 };
 
-export async function readBalanceOf(args: {
-  client: PublicClient;
-  token: Address;
-  owner: Address;
-  stateOverride?: StateOverrideEntry[];
-  debug?: SimulationDebug;
-  debugStep?: string;
-} & BlockOptions): Promise<bigint | undefined> {
+export async function readBalanceOf(
+  args: {
+    client: PublicClient;
+    token: Address;
+    owner: Address;
+    stateOverride?: StateOverride;
+    debug?: SimulationDebug;
+    debugStep?: string;
+  } & BlockOptions,
+): Promise<bigint | undefined> {
   const data = encodeFunctionData({
     abi: erc20ProbeAbi,
-    functionName: 'balanceOf',
+    functionName: "balanceOf",
     args: [args.owner],
   });
 
@@ -44,24 +45,26 @@ export async function readBalanceOf(args: {
     data,
     stateOverride: args.stateOverride,
     debug: args.debug,
-    debugStep: args.debugStep ?? 'erc20.balanceOf',
+    debugStep: args.debugStep ?? "erc20.balanceOf",
     blockNumber: args.blockNumber,
     blockTag: args.blockTag,
   });
 }
 
-export async function readAllowance(args: {
-  client: PublicClient;
-  token: Address;
-  owner: Address;
-  spender: Address;
-  stateOverride?: StateOverrideEntry[];
-  debug?: SimulationDebug;
-  debugStep?: string;
-} & BlockOptions): Promise<bigint | undefined> {
+export async function readAllowance(
+  args: {
+    client: PublicClient;
+    token: Address;
+    owner: Address;
+    spender: Address;
+    stateOverride?: StateOverride;
+    debug?: SimulationDebug;
+    debugStep?: string;
+  } & BlockOptions,
+): Promise<bigint | undefined> {
   const data = encodeFunctionData({
     abi: erc20ProbeAbi,
-    functionName: 'allowance',
+    functionName: "allowance",
     args: [args.owner, args.spender],
   });
 
@@ -72,22 +75,24 @@ export async function readAllowance(args: {
     data,
     stateOverride: args.stateOverride,
     debug: args.debug,
-    debugStep: args.debugStep ?? 'erc20.allowance',
+    debugStep: args.debugStep ?? "erc20.allowance",
     blockNumber: args.blockNumber,
     blockTag: args.blockTag,
   });
 }
 
-export async function discoverBalanceSlot(args: {
-  client: PublicClient;
-  token: Address;
-  owner: Address;
-  sentinel: bigint;
-  debug?: SimulationDebug;
-} & BlockOptions): Promise<TokenBalanceSlot | undefined> {
+export async function discoverBalanceSlot(
+  args: {
+    client: PublicClient;
+    token: Address;
+    owner: Address;
+    sentinel: bigint;
+    debug?: SimulationDebug;
+  } & BlockOptions,
+): Promise<TokenBalanceSlot | undefined> {
   const data = encodeFunctionData({
     abi: erc20ProbeAbi,
-    functionName: 'balanceOf',
+    functionName: "balanceOf",
     args: [args.owner],
   });
 
@@ -99,7 +104,7 @@ export async function discoverBalanceSlot(args: {
       to: args.token,
       data,
       debug: args.debug,
-      debugStep: 'balanceSlot.accessList',
+      debugStep: "balanceSlot.accessList",
       blockNumber: args.blockNumber,
       blockTag: args.blockTag,
     });
@@ -118,7 +123,7 @@ export async function discoverBalanceSlot(args: {
       owner: args.owner,
       stateOverride: [{ address: args.token, stateDiff: [{ slot, value: sentinelHex }] }],
       debug: args.debug,
-      debugStep: 'balanceSlot.verify',
+      debugStep: "balanceSlot.verify",
       blockNumber: args.blockNumber,
       blockTag: args.blockTag,
     });
@@ -128,17 +133,19 @@ export async function discoverBalanceSlot(args: {
   return undefined;
 }
 
-export async function discoverAllowanceSlot(args: {
-  client: PublicClient;
-  token: Address;
-  owner: Address;
-  spender: Address;
-  sentinel: bigint;
-  debug?: SimulationDebug;
-} & BlockOptions): Promise<AllowanceSlot | undefined> {
+export async function discoverAllowanceSlot(
+  args: {
+    client: PublicClient;
+    token: Address;
+    owner: Address;
+    spender: Address;
+    sentinel: bigint;
+    debug?: SimulationDebug;
+  } & BlockOptions,
+): Promise<AllowanceSlot | undefined> {
   const data = encodeFunctionData({
     abi: erc20ProbeAbi,
-    functionName: 'allowance',
+    functionName: "allowance",
     args: [args.owner, args.spender],
   });
 
@@ -150,7 +157,7 @@ export async function discoverAllowanceSlot(args: {
       to: args.token,
       data,
       debug: args.debug,
-      debugStep: 'allowanceSlot.accessList',
+      debugStep: "allowanceSlot.accessList",
       blockNumber: args.blockNumber,
       blockTag: args.blockTag,
     });
@@ -167,7 +174,7 @@ export async function discoverAllowanceSlot(args: {
     owner: args.owner,
     spender: args.spender,
     debug: args.debug,
-    debugStep: 'allowanceSlot.currentAllowance',
+    debugStep: "allowanceSlot.currentAllowance",
     blockNumber: args.blockNumber,
     blockTag: args.blockTag,
   });
@@ -182,7 +189,7 @@ export async function discoverAllowanceSlot(args: {
       spender: args.spender,
       stateOverride: [{ address: args.token, stateDiff: [{ slot, value: sentinelHex }] }],
       debug: args.debug,
-      debugStep: 'allowanceSlot.verify',
+      debugStep: "allowanceSlot.verify",
       blockNumber: args.blockNumber,
       blockTag: args.blockTag,
     });
@@ -199,20 +206,22 @@ export async function discoverAllowanceSlot(args: {
   return undefined;
 }
 
-async function readUint256Call(args: {
-  client: PublicClient;
-  account: Address;
-  to: Address;
-  data: Hex;
-  stateOverride?: StateOverrideEntry[];
-  debug?: SimulationDebug;
-  debugStep: string;
-} & BlockOptions): Promise<bigint | undefined> {
+async function readUint256Call(
+  args: {
+    client: PublicClient;
+    account: Address;
+    to: Address;
+    data: Hex;
+    stateOverride?: StateOverride;
+    debug?: SimulationDebug;
+    debugStep: string;
+  } & BlockOptions,
+): Promise<bigint | undefined> {
   try {
     const result = await withRpcDebug(
       args.debug,
       {
-        method: 'eth_call',
+        method: "eth_call",
         step: args.debugStep,
         details: {
           account: args.account,
@@ -220,14 +229,17 @@ async function readUint256Call(args: {
           stateOverrides: args.stateOverride?.length ?? 0,
         },
       },
-      () => (args.client as any).call({
-        account: args.account,
-        to: args.to,
-        data: args.data,
-        stateOverride: args.stateOverride,
-        blockNumber: args.blockNumber,
-        blockTag: args.blockTag,
-      }),
+      () =>
+        args.client.call(
+          buildCallParameters({
+            account: args.account,
+            to: args.to,
+            data: args.data,
+            stateOverride: args.stateOverride,
+            blockNumber: args.blockNumber,
+            blockTag: args.blockTag,
+          }),
+        ),
     );
     const data = getCallData(result);
     if (data.length < 66) return undefined;
@@ -235,4 +247,25 @@ async function readUint256Call(args: {
   } catch {
     return undefined;
   }
+}
+
+function buildCallParameters(
+  args: {
+    account: Address;
+    to: Address;
+    data: Hex;
+    stateOverride?: StateOverride;
+  } & BlockOptions,
+): CallParameters {
+  const base = {
+    account: args.account,
+    to: args.to,
+    data: args.data,
+    ...(args.stateOverride !== undefined ? { stateOverride: args.stateOverride } : {}),
+  };
+  return (
+    args.blockNumber !== undefined
+      ? { ...base, blockNumber: args.blockNumber }
+      : { ...base, ...(args.blockTag !== undefined ? { blockTag: args.blockTag } : {}) }
+  ) satisfies CallParameters;
 }

@@ -1,4 +1,4 @@
-import type { Address, BlockTag, Hex, PublicClient } from 'viem';
+import type { Address, BlockTag, Hex, PublicClient } from "viem";
 
 export type SimulatedCall = {
   to: Address;
@@ -7,8 +7,8 @@ export type SimulatedCall = {
 };
 
 export type SimulationDebugEvent = {
-  phase: 'start' | 'success' | 'error';
-  method: 'eth_call' | 'eth_createAccessList' | 'eth_getCode';
+  phase: "start" | "success" | "error";
+  method: "eth_call" | "eth_createAccessList" | "eth_getCode";
   step: string;
   details?: Record<string, unknown>;
   durationMs?: number;
@@ -29,7 +29,7 @@ export type SimulateArgs = {
 };
 
 export type AssetBalanceDelta = {
-  asset: 'native' | Address;
+  asset: "native" | Address;
   delta: bigint;
   /** Present for negative ERC-20 deltas when one spender can be isolated. */
   spender?: Address;
@@ -38,7 +38,7 @@ export type AssetBalanceDelta = {
 };
 
 export type SimulationResult = {
-  status: 'success' | 'reverted';
+  status: "success" | "reverted";
   assetBalanceDeltas: AssetBalanceDelta[];
   revertData?: Hex;
   revertReason?: string;
