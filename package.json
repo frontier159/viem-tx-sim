@@ -1,0 +1,38 @@
+{
+  "name": "viem-tx-sim",
+  "version": "0.1.0",
+  "description": "RPC-only transaction simulation helpers for viem applications.",
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "pnpm@10.18.3",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "contracts/TxSimulator.sol",
+    "docs/motivation.md",
+    "docs/assets/motivation"
+  ],
+  "scripts": {
+    "build": "pnpm build:contracts && tsc -p tsconfig.build.json",
+    "build:contracts": "forge build && node scripts/generate-txsim-bytecode.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
+    "test": "pnpm build:contracts && vitest run",
+    "test:debug": "VIEM_TX_SIM_DEBUG_RPC=1 pnpm test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "viem": "^2.45.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.9"
+  }
+}

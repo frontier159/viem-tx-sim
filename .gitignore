@@ -1,0 +1,6 @@
+cache/
+dist/
+node_modules/
+out/
+.pnpm-store/
+*.tsbuildinfo
