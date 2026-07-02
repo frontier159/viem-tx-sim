@@ -85,7 +85,7 @@ describe("error handling", () => {
     await expect(
       discoverBalanceSlots({
         client: ctx.publicClient,
-        owner: ctx.account.address,
+        from: ctx.account.address,
         tokens: [token.address],
       }),
     ).resolves.toEqual([]);
@@ -95,7 +95,7 @@ describe("error handling", () => {
     return simulate({
       client: ctx.publicClient,
       from: ctx.account.address,
-      calls: [{ to: ctx.secondAccount.address, calldata: "0x" }],
+      calls: [{ to: ctx.secondAccount.address, data: "0x" }],
     });
   }
 

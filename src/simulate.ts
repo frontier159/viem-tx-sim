@@ -17,7 +17,7 @@ export async function simulate(args: SimulateArgs): Promise<SimulationResult> {
   const gas = args.gas ?? DEFAULT_SIMULATION_GAS_LIMIT;
   const calls = args.calls.map((call) => ({
     to: call.to,
-    calldata: call.calldata,
+    data: call.data,
     value: call.value ?? 0n,
   })) satisfies SimulatedCall[];
   const candidateAddresses = await discoverCandidateAddresses({

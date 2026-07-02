@@ -59,7 +59,7 @@ export async function runSimulator(
       args.calls.map((call) => ({
         to: call.to,
         value: call.value ?? 0n,
-        data: call.calldata,
+        data: call.data,
       })),
       candidates,
       args.allowanceProbes ?? [],

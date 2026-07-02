@@ -58,7 +58,7 @@ mainnetDescribe("mainnet RPC integration", () => {
       chain: mainnet,
       transport: http(MAINNET_RPC_URL),
     });
-    const calldata = encodeFunctionData({
+    const data = encodeFunctionData({
       abi: erc20Abi,
       functionName: "transfer",
       args: [RECIPIENT, 1n],
@@ -67,7 +67,7 @@ mainnetDescribe("mainnet RPC integration", () => {
     const blockNumber = mainnetBlockNumber();
     const balanceSlots = await discoverBalanceSlots({
       client,
-      owner: ANVIL_ACCOUNT,
+      from: ANVIL_ACCOUNT,
       tokens: [USDC],
       blockNumber,
       debug: (event) => events.push(event),
@@ -77,7 +77,7 @@ mainnetDescribe("mainnet RPC integration", () => {
     const result = await simulate({
       client,
       from: ANVIL_ACCOUNT,
-      calls: [{ to: USDC, calldata }],
+      calls: [{ to: USDC, data }],
       blockNumber,
       tokenSlotOverrides: balanceSlots,
       debug: (event) => events.push(event),
@@ -92,9 +92,9 @@ mainnetDescribe("mainnet RPC integration", () => {
         step: "candidateDiscovery.accessList",
       }),
     );
-    expect(
-      events.some((event) => event.step === "candidateDiscovery.calldataAddress.getCode"),
-    ).toBe(false);
+    expect(events.some((event) => event.step === "candidateDiscovery.dataAddress.getCode")).toBe(
+      false,
+    );
   });
 
   it("discovers known USDS and sUSDS deposit slots", async () => {
@@ -108,13 +108,13 @@ mainnetDescribe("mainnet RPC integration", () => {
     const [balanceSlots, allowanceSlots] = await Promise.all([
       discoverBalanceSlots({
         client,
-        owner: ANVIL_ACCOUNT,
+        from: ANVIL_ACCOUNT,
         tokens: [USDS],
         blockNumber,
       }),
       discoverAllowanceSlots({
         client,
-        owner: ANVIL_ACCOUNT,
+        from: ANVIL_ACCOUNT,
         pairs: [{ token: USDS, spender: SUSDS }],
         blockNumber,
       }),
@@ -134,7 +134,7 @@ mainnetDescribe("mainnet RPC integration", () => {
     const requirements = await discoverRequirements({
       client,
       from: ANVIL_ACCOUNT,
-      calls: [{ to: SUSDS, calldata: usdsDepositCalldata() }],
+      calls: [{ to: SUSDS, data: usdsDepositCalldata() }],
       blockNumber: mainnetBlockNumber(),
     });
 
@@ -158,7 +158,7 @@ mainnetDescribe("mainnet RPC integration", () => {
     const result = await simulate({
       client,
       from: ANVIL_ACCOUNT,
-      calls: [{ to: SUSDS, calldata: usdsDepositCalldata() }],
+      calls: [{ to: SUSDS, data: usdsDepositCalldata() }],
       blockNumber: mainnetBlockNumber(),
       tokenSlotOverrides: USDS_SLOT_OVERRIDES,
     });

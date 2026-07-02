@@ -19,7 +19,7 @@ describe("discoverRequirements", () => {
   it("measures vault balance and allowance requirements", async () => {
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const vault = await deploy("TokenVault.sol", "TokenVault", [token.address]);
-    const calldata = encodeFunctionData({
+    const data = encodeFunctionData({
       abi: vault.abi,
       functionName: "deposit",
       args: [500n],
@@ -28,7 +28,7 @@ describe("discoverRequirements", () => {
     const requirements = await discoverRequirements({
       client: ctx.publicClient,
       from: ctx.account.address,
-      calls: [{ to: vault.address, calldata }],
+      calls: [{ to: vault.address, data }],
     });
 
     expect(requirements.status).toBe("success");
@@ -59,8 +59,8 @@ describe("discoverRequirements", () => {
       client: ctx.publicClient,
       from: ctx.account.address,
       calls: [
-        { to: spenderA.address, calldata: pullA },
-        { to: spenderB.address, calldata: pullB },
+        { to: spenderA.address, data: pullA },
+        { to: spenderB.address, data: pullB },
       ],
     });
 
@@ -92,8 +92,8 @@ describe("discoverRequirements", () => {
       client: ctx.publicClient,
       from: ctx.account.address,
       calls: [
-        { to: spender.address, calldata: pull },
-        { to: spender.address, calldata: refund },
+        { to: spender.address, data: pull },
+        { to: spender.address, data: refund },
       ],
     });
 
@@ -118,8 +118,8 @@ describe("discoverRequirements", () => {
       client: ctx.publicClient,
       from: ctx.account.address,
       calls: [
-        { to: token.address, calldata: approve },
-        { to: spender.address, calldata: pull },
+        { to: token.address, data: approve },
+        { to: spender.address, data: pull },
       ],
     });
 
@@ -150,8 +150,8 @@ describe("discoverRequirements", () => {
       client: ctx.publicClient,
       from: ctx.account.address,
       calls: [
-        { to: token.address, calldata: permit },
-        { to: spender.address, calldata: pull },
+        { to: token.address, data: permit },
+        { to: spender.address, data: pull },
       ],
     });
 
@@ -184,8 +184,8 @@ describe("discoverRequirements", () => {
       client: ctx.publicClient,
       from: ctx.account.address,
       calls: [
-        { to: relayer.address, calldata: relay },
-        { to: spender.address, calldata: pull },
+        { to: relayer.address, data: relay },
+        { to: spender.address, data: pull },
       ],
     });
 
@@ -211,8 +211,8 @@ describe("discoverRequirements", () => {
       client: ctx.publicClient,
       from: ctx.account.address,
       calls: [
-        { to: spender.address, calldata: pull },
-        { to: reverter.address, calldata: "0x12345678" },
+        { to: spender.address, data: pull },
+        { to: reverter.address, data: "0x12345678" },
       ],
     });
 
@@ -246,8 +246,8 @@ describe("discoverRequirements", () => {
       client: ctx.publicClient,
       from: ctx.account.address,
       calls: [
-        { to: spenderA.address, calldata: pullA },
-        { to: spenderB.address, calldata: pullB },
+        { to: spenderA.address, data: pullA },
+        { to: spenderB.address, data: pullB },
       ],
       debug: (event) => events.push(event),
     });
@@ -280,8 +280,8 @@ describe("discoverRequirements", () => {
       client: ctx.publicClient,
       from: ctx.account.address,
       calls: [
-        { to: spenderA.address, calldata: pullA },
-        { to: spenderB.address, calldata: pullB },
+        { to: spenderA.address, data: pullA },
+        { to: spenderB.address, data: pullB },
       ],
       debug: (event) => events.push(event),
     });
@@ -304,7 +304,7 @@ describe("discoverRequirements", () => {
     const requirements = await discoverRequirements({
       client: ctx.publicClient,
       from: ctx.account.address,
-      calls: [{ to: ctx.secondAccount.address, calldata: "0x", value }],
+      calls: [{ to: ctx.secondAccount.address, data: "0x", value }],
     });
 
     expect(requirements.status).toBe("success");

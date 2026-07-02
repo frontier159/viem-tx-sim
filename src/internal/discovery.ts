@@ -21,7 +21,7 @@ export async function discoverCandidateAddresses(
         client: args.client,
         from: args.from,
         to: call.to,
-        data: call.calldata,
+        data: call.data,
         value: call.value ?? 0n,
         gas: args.gas,
         debug: args.debug,

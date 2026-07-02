@@ -10,7 +10,7 @@ import { blockOptionsSpread } from "./internal/rpc.js";
 export async function discoverBalanceSlots(
   args: {
     client: PublicClient;
-    owner: Address;
+    from: Address;
     tokens: readonly Address[];
     gas?: bigint;
     debug?: SimulationDebug;
@@ -21,7 +21,7 @@ export async function discoverBalanceSlots(
       discoverBalanceSlot({
         client: args.client,
         token,
-        owner: args.owner,
+        owner: args.from,
         sentinel: OVERRIDE_TOKEN_AMOUNT,
         gas: args.gas,
         debug: args.debug,
@@ -36,7 +36,7 @@ export async function discoverBalanceSlots(
 export async function discoverAllowanceSlots(
   args: {
     client: PublicClient;
-    owner: Address;
+    from: Address;
     pairs: readonly {
       token: Address;
       spender: Address;
@@ -50,7 +50,7 @@ export async function discoverAllowanceSlots(
       discoverAllowanceSlot({
         client: args.client,
         token: pair.token,
-        owner: args.owner,
+        owner: args.from,
         spender: pair.spender,
         sentinel: OVERRIDE_TOKEN_AMOUNT,
         gas: args.gas,

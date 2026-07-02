@@ -2,7 +2,7 @@ import type { Address, BlockTag, Hex, PublicClient } from "viem";
 
 export type SimulatedCall = {
   to: Address;
-  calldata: Hex;
+  data: Hex;
   value?: bigint;
 };
 

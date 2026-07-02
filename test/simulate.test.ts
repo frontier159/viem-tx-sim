@@ -32,7 +32,7 @@ describe("viem-tx-sim", () => {
     const result = await simulate({
       client: ctx.publicClient,
       from: ctx.account.address,
-      calls: [{ to: ctx.secondAccount.address, calldata: "0x", value: parseEther("1") }],
+      calls: [{ to: ctx.secondAccount.address, data: "0x", value: parseEther("1") }],
     });
 
     expect(result.status).toBe("success");
@@ -44,7 +44,7 @@ describe("viem-tx-sim", () => {
     const result = await simulate({
       client: ctx.publicClient,
       from: ctx.account.address,
-      calls: [{ to: ctx.secondAccount.address, calldata: "0x", value: parseEther("1") }],
+      calls: [{ to: ctx.secondAccount.address, data: "0x", value: parseEther("1") }],
       debug: (event) => events.push(event),
     });
 
@@ -69,7 +69,7 @@ describe("viem-tx-sim", () => {
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     await write(token, "mint", [ctx.account.address, 1_000n]);
 
-    const calldata = encodeFunctionData({
+    const data = encodeFunctionData({
       abi: token.abi,
       functionName: "transfer",
       args: [ctx.secondAccount.address, 250n],
@@ -77,7 +77,7 @@ describe("viem-tx-sim", () => {
     const result = await simulate({
       client: ctx.publicClient,
       from: ctx.account.address,
-      calls: [{ to: token.address, calldata }],
+      calls: [{ to: token.address, data }],
     });
 
     expect(result.status).toBe("success");
@@ -86,7 +86,7 @@ describe("viem-tx-sim", () => {
 
   it("supports safe NFT receipt at the injected account", async () => {
     const nft = await deploy("MockERC721.sol", "MockERC721");
-    const calldata = encodeFunctionData({
+    const data = encodeFunctionData({
       abi: nft.abi,
       functionName: "safeMint",
       args: [ctx.account.address, 1n],
@@ -95,7 +95,7 @@ describe("viem-tx-sim", () => {
     const result = await simulate({
       client: ctx.publicClient,
       from: ctx.account.address,
-      calls: [{ to: nft.address, calldata }],
+      calls: [{ to: nft.address, data }],
     });
 
     expect(result.status).toBe("success");
@@ -110,7 +110,7 @@ describe("viem-tx-sim", () => {
 
     const allowanceSlots = await discoverAllowanceSlots({
       client: ctx.publicClient,
-      owner: ctx.account.address,
+      from: ctx.account.address,
       pairs: [{ token: token.address, spender: spender.address }],
     });
 
@@ -118,7 +118,7 @@ describe("viem-tx-sim", () => {
       expect.objectContaining({ token: token.address, spender: spender.address }),
     );
 
-    const calldata = encodeFunctionData({
+    const data = encodeFunctionData({
       abi: spender.abi,
       functionName: "pull",
       args: [token.address, 321n],
@@ -126,7 +126,7 @@ describe("viem-tx-sim", () => {
     const result = await simulate({
       client: ctx.publicClient,
       from: ctx.account.address,
-      calls: [{ to: spender.address, calldata }],
+      calls: [{ to: spender.address, data }],
       tokenSlotOverrides: allowanceSlots,
       debug: (event) => events.push(event),
     });
@@ -145,7 +145,7 @@ describe("viem-tx-sim", () => {
     await write(token, "mint", [ctx.account.address, 1_000n]);
     await write(token, "approve", [spender.address, 123n]);
 
-    const calldata = encodeFunctionData({
+    const data = encodeFunctionData({
       abi: spender.abi,
       functionName: "pull",
       args: [123n],
@@ -153,7 +153,7 @@ describe("viem-tx-sim", () => {
     const result = await simulate({
       client: ctx.publicClient,
       from: ctx.account.address,
-      calls: [{ to: spender.address, calldata }],
+      calls: [{ to: spender.address, data }],
     });
 
     expect(result.status).toBe("success");
@@ -165,7 +165,7 @@ describe("viem-tx-sim", () => {
     const spender = await deploy("Spender.sol", "Spender");
     const balanceSlots = await discoverBalanceSlots({
       client: ctx.publicClient,
-      owner: ctx.account.address,
+      from: ctx.account.address,
       tokens: [token.address],
     });
 
@@ -185,8 +185,8 @@ describe("viem-tx-sim", () => {
       client: ctx.publicClient,
       from: ctx.account.address,
       calls: [
-        { to: token.address, calldata: approve },
-        { to: spender.address, calldata: pull },
+        { to: token.address, data: approve },
+        { to: spender.address, data: pull },
       ],
       tokenSlotOverrides: balanceSlots,
     });
@@ -214,8 +214,8 @@ describe("viem-tx-sim", () => {
       client: ctx.publicClient,
       from: ctx.account.address,
       calls: [
-        { to: token.address, calldata: approve },
-        { to: spender.address, calldata: pull },
+        { to: token.address, data: approve },
+        { to: spender.address, data: pull },
       ],
     });
 
@@ -244,8 +244,8 @@ describe("viem-tx-sim", () => {
       client: ctx.publicClient,
       from: ctx.account.address,
       calls: [
-        { to: token.address, calldata: approve },
-        { to: permit2.address, calldata: pull },
+        { to: token.address, data: approve },
+        { to: permit2.address, data: pull },
       ],
     });
 
@@ -279,7 +279,7 @@ describe("viem-tx-sim", () => {
 
     const balanceSlots = await discoverBalanceSlots({
       client: ctx.publicClient,
-      owner: ctx.account.address,
+      from: ctx.account.address,
       tokens: [proxyToken.address],
     });
     expect(balanceSlots).toContainEqual(expect.objectContaining({ token: proxyToken.address }));
@@ -298,8 +298,8 @@ describe("viem-tx-sim", () => {
       client: ctx.publicClient,
       from: ctx.account.address,
       calls: [
-        { to: proxyToken.address, calldata: approve },
-        { to: spender.address, calldata: pull },
+        { to: proxyToken.address, data: approve },
+        { to: spender.address, data: pull },
       ],
       tokenSlotOverrides: balanceSlots,
     });
@@ -313,16 +313,16 @@ describe("viem-tx-sim", () => {
     const spender = await deploy("Spender.sol", "Spender");
     const balanceSlots = await discoverBalanceSlots({
       client: ctx.publicClient,
-      owner: ctx.account.address,
+      from: ctx.account.address,
       tokens: [token.address],
     });
     const allowanceSlots = await discoverAllowanceSlots({
       client: ctx.publicClient,
-      owner: ctx.account.address,
+      from: ctx.account.address,
       pairs: [{ token: token.address, spender: spender.address }],
     });
 
-    const calldata = encodeFunctionData({
+    const data = encodeFunctionData({
       abi: spender.abi,
       functionName: "pull",
       args: [token.address, 200n],
@@ -330,7 +330,7 @@ describe("viem-tx-sim", () => {
     const result = await simulate({
       client: ctx.publicClient,
       from: ctx.account.address,
-      calls: [{ to: spender.address, calldata }],
+      calls: [{ to: spender.address, data }],
       tokenSlotOverrides: [...balanceSlots, ...allowanceSlots],
     });
 
@@ -343,7 +343,7 @@ describe("viem-tx-sim", () => {
     const result = await simulate({
       client: ctx.publicClient,
       from: ctx.account.address,
-      calls: [{ to: target.address, calldata: "0x12345678" }],
+      calls: [{ to: target.address, data: "0x12345678" }],
     });
 
     expect(result.status).toBe("reverted");

@@ -7,7 +7,7 @@ RPC-only transaction simulation helpers for [viem](https://viem.sh) applications
 Credit to [apoorv X thread](https://x.com/apoorveth/status/2041544070481449266)
 Transcribed in [motivation.md](./docs/motivation.md)
 
-Every wallet shows "asset changes" before you sign. Most do it by sending your calldata to a centralized simulation API — a single point of failure and a privacy leak. viem-tx-sim makes the EVM do the work itself:
+Every wallet shows "asset changes" before you sign. Most do it by sending your data to a centralized simulation API — a single point of failure and a privacy leak. viem-tx-sim makes the EVM do the work itself:
 
 1. `eth_createAccessList` dry-runs each call and returns every contract the transaction touches — those become candidate tokens, with no token lists or indexers.
 2. One `eth_call` with state overrides injects a never-deployed `TxSimulator` contract **at the user's own address** and executes the calls. Because the simulator runs as the user, `address(this)` and `msg.sender` are the real account, so balance reads, allowance checks, and `msg.sender`-gated logic behave exactly as they would in the real transaction. Batch calls run sequentially in one EVM context, so an approval in call 1 is visible to a swap in call 2.
@@ -41,7 +41,7 @@ const result = await simulate({
   calls: [
     {
       to: USDS,
-      calldata: encodeFunctionData({
+      data: encodeFunctionData({
         abi: parseAbi(["function approve(address spender, uint256 amount) returns (bool)"]),
         functionName: "approve",
         args: [SUSDS, assets],
@@ -49,7 +49,7 @@ const result = await simulate({
     },
     {
       to: SUSDS,
-      calldata: encodeFunctionData({
+      data: encodeFunctionData({
         abi: parseAbi(["function deposit(uint256 assets, address receiver) returns (uint256 shares)"]),
         functionName: "deposit",
         args: [assets, user],
@@ -79,19 +79,19 @@ import { discoverAllowanceSlots, discoverBalanceSlots, simulate } from "viem-tx-
 
 const balanceSlots = await discoverBalanceSlots({
   client,
-  owner: from,
+  from,
   tokens: [token],
 });
 const allowanceSlots = await discoverAllowanceSlots({
   client,
-  owner: from,
+  from,
   pairs: [{ token, spender }],
 });
 
 const result = await simulate({
   client,
   from,
-  calls: [{ to, calldata }],
+  calls: [{ to, data }],
   tokenSlotOverrides: [...balanceSlots, ...allowanceSlots],
 });
 ```
@@ -128,7 +128,7 @@ import { simulate } from "viem-tx-sim";
 const result = await simulate({
   client,
   from,
-  calls: [{ to, calldata, value: 0n }],
+  calls: [{ to, data, value: 0n }],
   debug: true,
 });
 ```
@@ -139,7 +139,7 @@ Or pass a callback to collect structured events:
 await simulate({
   client,
   from,
-  calls: [{ to, calldata }],
+  calls: [{ to, data }],
   debug: (event) => {
     console.debug(event.method, event.step, event.phase, event.durationMs);
   },

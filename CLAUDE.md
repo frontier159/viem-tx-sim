@@ -19,7 +19,7 @@ Never hand-edit files under `src/generated/`; regenerate them with `pnpm build:c
 `dist/` is committed and is part of the published package output.
 
 Slot discovery is explicit.
-Balance and allowance slots are found by access-list probing `balanceOf` / `allowance` calldata, then verifying a sentinel state override.
+Balance and allowance slots are found by access-list probing `balanceOf` / `allowance` data, then verifying a sentinel state override.
 The sentinel is `10^50`, deliberately not `uint256.max`, because allowance decrements must still fire for standard ERC-20 implementations.
 
 `discoverRequirements()` runs a recon simulation, discovers balance and allowance slots, then runs a forged measurement simulation.

@@ -48,7 +48,7 @@ export async function discoverRequirements(
   const gas = args.gas ?? DEFAULT_SIMULATION_GAS_LIMIT;
   const calls = args.calls.map((call) => ({
     to: call.to,
-    calldata: call.calldata,
+    data: call.data,
     value: call.value ?? 0n,
   })) satisfies SimulatedCall[];
   const candidateAddresses = await discoverCandidateAddresses({
@@ -76,7 +76,7 @@ export async function discoverRequirements(
 
   const balanceSlots = await discoverPublicBalanceSlots({
     client: args.client,
-    owner: args.from,
+    from: args.from,
     tokens,
     gas,
     debug: args.debug,
@@ -275,14 +275,14 @@ function firstInBatchAllowanceSetIndex(
   for (let i = 0; i < calls.length; ++i) {
     const call = calls[i];
     if (call === undefined || addressKey(call.to) !== addressKey(probe.token)) continue;
-    if (isAllowanceSetForSpender(call.calldata, owner, probe.spender)) return i;
+    if (isAllowanceSetForSpender(call.data, owner, probe.spender)) return i;
   }
   return undefined;
 }
 
-function isAllowanceSetForSpender(calldata: Hex, owner: Address, spender: Address): boolean {
+function isAllowanceSetForSpender(data: Hex, owner: Address, spender: Address): boolean {
   try {
-    const decoded = decodeFunctionData({ abi: allowanceSettingAbi, data: calldata });
+    const decoded = decodeFunctionData({ abi: allowanceSettingAbi, data });
     if (decoded.functionName === "approve")
       return addressKey(decoded.args[0]) === addressKey(spender);
     return (
