@@ -1,5 +1,5 @@
 import type { Address, Hex, PublicClient } from "viem";
-import { decodeFunctionData, erc20Abi } from "viem";
+import { decodeFunctionData, parseAbi } from "viem";
 
 import { InvalidSimulationInputError } from "./errors.js";
 import type {
@@ -20,6 +20,10 @@ import { runSimulator } from "./internal/simulator.js";
 import type { StorageOverride } from "./internal/stateOverride.js";
 
 const DEFAULT_SIMULATION_GAS_LIMIT = 16_000_000n;
+const allowanceSettingAbi = parseAbi([
+  "function approve(address spender, uint256 amount) returns (bool)",
+  "function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)",
+]);
 
 type AllowanceProbe = {
   token: Address;
@@ -99,9 +103,12 @@ export async function discoverRequirements(
       measurement.probeData.maxTokenOutflows,
     ),
     allowances: requiredAllowances(
+      args.from,
       calls,
       allowanceProbes,
       measurement.probeData.allowanceCheckpoints,
+      measurement.probeData.candidates,
+      measurement.probeData.maxTokenOutflows,
     ),
     slots: [...balanceSlots, ...allowanceSlots].map(tokenSlotOverride),
     revertData: measurement.revertData,
@@ -244,9 +251,12 @@ function requiredBalances(
 }
 
 function requiredAllowances(
+  owner: Address,
   calls: readonly SimulatedCall[],
   probes: readonly AllowanceProbe[],
   checkpoints: readonly bigint[],
+  candidates: readonly Address[],
+  maxTokenOutflows: readonly bigint[],
 ): DiscoveredRequirements["allowances"] {
   const allowances: DiscoveredRequirements["allowances"] = [];
   const stride = calls.length + 1;
@@ -255,41 +265,55 @@ function requiredAllowances(
     const probe = probes[probeIndex];
     if (probe === undefined) continue;
 
-    const firstApproveIndex = firstInBatchApproveIndex(calls, probe);
-    const limit = firstApproveIndex ?? calls.length;
+    const firstAllowanceSetIndex = firstInBatchAllowanceSetIndex(calls, owner, probe);
+    const limit = firstAllowanceSetIndex ?? calls.length;
     let amount = 0n;
     for (let callIndex = 0; callIndex < limit; ++callIndex) {
       const before = checkpoints[probeIndex * stride + callIndex] ?? 0n;
       const after = checkpoints[probeIndex * stride + callIndex + 1] ?? 0n;
       if (before > after) amount += before - after;
     }
+    if (amount > tokenOutflow(probe.token, candidates, maxTokenOutflows)) continue;
     if (amount > 0n) allowances.push({ token: probe.token, spender: probe.spender, amount });
   }
 
   return allowances;
 }
 
-function firstInBatchApproveIndex(
+function firstInBatchAllowanceSetIndex(
   calls: readonly SimulatedCall[],
+  owner: Address,
   probe: AllowanceProbe,
 ): number | undefined {
   for (let i = 0; i < calls.length; ++i) {
     const call = calls[i];
     if (call === undefined || addressKey(call.to) !== addressKey(probe.token)) continue;
-    if (isApproveForSpender(call.calldata, probe.spender)) return i;
+    if (isAllowanceSetForSpender(call.calldata, owner, probe.spender)) return i;
   }
   return undefined;
 }
 
-function isApproveForSpender(calldata: Hex, spender: Address): boolean {
+function isAllowanceSetForSpender(calldata: Hex, owner: Address, spender: Address): boolean {
   try {
-    const decoded = decodeFunctionData({ abi: erc20Abi, data: calldata });
+    const decoded = decodeFunctionData({ abi: allowanceSettingAbi, data: calldata });
+    if (decoded.functionName === "approve")
+      return addressKey(decoded.args[0]) === addressKey(spender);
     return (
-      decoded.functionName === "approve" && addressKey(decoded.args[0]) === addressKey(spender)
+      addressKey(decoded.args[0]) === addressKey(owner) &&
+      addressKey(decoded.args[1]) === addressKey(spender)
     );
   } catch {
     return false;
   }
+}
+
+function tokenOutflow(
+  token: Address,
+  candidates: readonly Address[],
+  maxTokenOutflows: readonly bigint[],
+): bigint {
+  const index = candidates.findIndex((candidate) => addressKey(candidate) === addressKey(token));
+  return index === -1 ? 0n : (maxTokenOutflows[index] ?? 0n);
 }
 
 function slotOverride(slot: BalanceSlot | AllowanceSlot): StorageOverride {

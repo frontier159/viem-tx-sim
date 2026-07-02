@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { encodeFunctionData, getAddress, parseEther } from "viem";
+import { encodeFunctionData, getAddress, parseEther, zeroHash, type Abi, type Address } from "viem";
 
 import { discoverRequirements, type SimulationDebugEvent } from "../src/index.js";
 import { artifact } from "./helpers/artifacts.js";
@@ -131,6 +131,101 @@ describe("discoverRequirements", () => {
     ).toBe(false);
   });
 
+  it("does not require allowance when the batch permits before pulling", async () => {
+    const token = await deploy("PermitToken.sol", "PermitToken", ["Token", "TKN", 18]);
+    const spender = await deploy("Spender.sol", "Spender");
+    await write(token, "mint", [ctx.account.address, 1_000n]);
+    const permit = encodeFunctionData({
+      abi: token.abi,
+      functionName: "permit",
+      args: [ctx.account.address, spender.address, 400n, 0n, 0, zeroHash, zeroHash],
+    });
+    const pull = encodeFunctionData({
+      abi: spender.abi,
+      functionName: "pull",
+      args: [token.address, 400n],
+    });
+
+    const requirements = await discoverRequirements({
+      client: ctx.publicClient,
+      from: ctx.account.address,
+      calls: [
+        { to: token.address, calldata: permit },
+        { to: spender.address, calldata: pull },
+      ],
+    });
+
+    expect(requirements.status).toBe("success");
+    expect(requirements.balances).toContainEqual({ token: token.address, amount: 400n });
+    expect(
+      requirements.allowances.some(
+        (allowance) => allowance.token === token.address && allowance.spender === spender.address,
+      ),
+    ).toBe(false);
+  });
+
+  it("discards relayed allowance overwrites above gross outflow", async () => {
+    const token = await deploy("PermitToken.sol", "PermitToken", ["Token", "TKN", 18]);
+    const relayer = await deploy("PermitRelayer.sol", "PermitRelayer");
+    const spender = await deploy("Spender.sol", "Spender");
+    await write(token, "mint", [ctx.account.address, 1_000n]);
+    const relay = encodeFunctionData({
+      abi: relayer.abi,
+      functionName: "relay",
+      args: [token.address, ctx.account.address, spender.address, 400n],
+    });
+    const pull = encodeFunctionData({
+      abi: spender.abi,
+      functionName: "pull",
+      args: [token.address, 400n],
+    });
+
+    const requirements = await discoverRequirements({
+      client: ctx.publicClient,
+      from: ctx.account.address,
+      calls: [
+        { to: relayer.address, calldata: relay },
+        { to: spender.address, calldata: pull },
+      ],
+    });
+
+    expect(requirements.status).toBe("success");
+    expect(requirements.balances).toContainEqual({ token: token.address, amount: 400n });
+    expect(
+      requirements.allowances.filter((allowance) => allowance.token === token.address),
+    ).toEqual([]);
+  });
+
+  it("measures the executed prefix when a batch reverts mid-way", async () => {
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy("Spender.sol", "Spender");
+    const reverter = await deploy("RevertingTarget.sol", "RevertingTarget");
+    await write(token, "mint", [ctx.account.address, 1_000n]);
+    const pull = encodeFunctionData({
+      abi: spender.abi,
+      functionName: "pull",
+      args: [token.address, 100n],
+    });
+
+    const requirements = await discoverRequirements({
+      client: ctx.publicClient,
+      from: ctx.account.address,
+      calls: [
+        { to: spender.address, calldata: pull },
+        { to: reverter.address, calldata: "0x12345678" },
+      ],
+    });
+
+    expect(requirements.status).toBe("reverted");
+    expect(requirements.failingCallIndex).toBe(1);
+    expect(requirements.balances).toContainEqual({ token: token.address, amount: 100n });
+    expect(requirements.allowances).toContainEqual({
+      token: token.address,
+      spender: spender.address,
+      amount: 100n,
+    });
+  });
+
   it("infers standard allowance slots after one probe", async () => {
     const events: SimulationDebugEvent[] = [];
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
@@ -228,5 +323,19 @@ describe("discoverRequirements", () => {
       abi: contract.abi,
       address: getAddress(receipt.contractAddress!),
     };
+  }
+
+  async function write(
+    contract: { abi: Abi; address: Address },
+    functionName: string,
+    args: readonly unknown[] = [],
+  ) {
+    const hash = await ctx.walletClient.writeContract({
+      address: contract.address,
+      abi: contract.abi,
+      functionName,
+      args,
+    });
+    await ctx.publicClient.waitForTransactionReceipt({ hash });
   }
 });

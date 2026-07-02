@@ -100,7 +100,7 @@ Balance slots are reusable per token/owner, and allowance slots are reusable per
 
 ## Discovering requirements (optional)
 
-When you don't already know which balances and approvals a transaction needs, `discoverRequirements()` measures them by forging generous state and observing per-call balance and allowance changes. Amounts are estimates measured under forged state; callers should pad them. Tokens that skip allowance decrements for large non-max allowances can under-report.
+When you don't already know which balances and approvals a transaction needs, `discoverRequirements()` measures them by forging generous state and observing per-call balance and allowance changes. Amounts are estimates measured under forged state and should be padded; pairs whose allowance is set inside the batch (approve or permit) are excluded, and measured allowance decreases are sanity-bounded by the token's gross outflow.
 
 ```ts
 import { discoverRequirements, simulate } from "viem-tx-sim";
@@ -145,6 +145,35 @@ await simulate({
   },
 });
 ```
+
+## Known limitations
+
+Situations the simulation does not cover, or where the preview can differ from real execution. None of these throw — they show up as wrong or missing deltas, or as a simulated revert where the real transaction would succeed (or vice versa).
+
+**The account has code during simulation.** Injecting `TxSimulator` at `from` is the core trick, and it is visible on-chain logic:
+
+- Contracts that gate on "is the caller an EOA" via `extcodesize(msg.sender) == 0` see a contract during simulation and may take a different branch than the real transaction.
+- Receiving ERC-721/1155 tokens via `safeTransferFrom`/`safeMint` **reverts in simulation**: the transfer detects code at the recipient and calls a receiver hook that `TxSimulator` does not implement. (A real EOA skips the hook; a real Safe implements it via its fallback handler — both succeed in reality.)
+- ERC-777 `send` to the simulated account reverts unless the account has a real ERC-1820 registration on-chain.
+- Permit2-style signature checks are handled for EOAs: the injected `isValidSignature` performs the same ECDSA recovery the real `ecrecover` path would.
+
+**Smart-contract wallets (e.g. a Gnosis Safe) are treated as plain senders.** Using a Safe as `from` works: the code override replaces the wallet's bytecode but keeps its storage, ETH, and token balances, and every call executes with `msg.sender` = the wallet. What is *not* modeled is the wallet itself:
+
+- The injected `isValidSignature` **replaces the wallet's own ERC-1271 validation** and only accepts EOA-style signatures recovering to `from`. Flows that require the wallet's real contract-signature logic (Permit2 permits or orders signed by the Safe itself) simulate as reverted. This is intentional — the goal is simulating downstream protocol behavior, not the wallet's signing machinery.
+- Guards, modules, owner thresholds, nonces, and `operation=DELEGATECALL` batches are outside the simulation. A transaction guard that would block the real execution is invisible to the preview.
+- `tx.origin` is the `from` address during simulation; in real execution it is the submitting EOA.
+
+**An adversarial contract can detect it is being simulated** — via the code at `from`, the recognizable forged balances, or `eth_call` context — and behave differently in the real transaction. This is inherent to state-override simulation (centralized simulation APIs share it). Treat the preview as best-effort insight, not a security guarantee against malicious contracts.
+
+**Results are estimates against one block's state.** Deltas and discovered requirements reflect the chosen block; prices, liquidity, and allowances move before the real transaction lands. Pad amounts accordingly. Amounts from `discoverRequirements()` are additionally measured under forged (very large) balances, so contracts that branch on the account's real balance can be measured on the wrong branch.
+
+**Asset coverage is native + `balanceOf(address)`.** Deltas track ETH and anything answering ERC-20-style `balanceOf` (an ERC-721 shows up as a count delta, without token IDs). ERC-1155 balances (`balanceOf(address,uint256)`) are not tracked. Tokens whose balance is computed rather than stored in one slot per holder (rebasing/share-based tokens like stETH) cannot be forged — slot discovery verifies before overriding and omits them.
+
+**Candidate discovery follows the dry run.** Token candidates come from `eth_createAccessList` on the *unforged* calls; if that dry run reverts early, contracts that would only be touched later are not discovered, and their deltas are missed. Forging (or `discoverRequirements()`, which measures after forging) avoids most of this.
+
+**RPC provider requirements.** The provider must support `eth_createAccessList` (including returning the access list for reverting calls) and `eth_call` with state overrides. Missing support surfaces as `AccessListUnsupportedError` / `StateOverrideUnsupportedError`.
+
+**Not a gas estimator.** The simulation runs under a generous gas budget (16M default) and the injected code changes gas accounting; use `eth_estimateGas` on the real transaction for gas.
 
 ## Development
 
