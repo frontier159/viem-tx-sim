@@ -153,7 +153,7 @@ Situations the simulation does not cover, or where the preview can differ from r
 **The account has code during simulation.** Injecting `TxSimulator` at `from` is the core trick, and it is visible on-chain logic:
 
 - Contracts that gate on "is the caller an EOA" via `extcodesize(msg.sender) == 0` see a contract during simulation and may take a different branch than the real transaction.
-- Receiving ERC-721/1155 tokens via `safeTransferFrom`/`safeMint` **reverts in simulation**: the transfer detects code at the recipient and calls a receiver hook that `TxSimulator` does not implement. (A real EOA skips the hook; a real Safe implements it via its fallback handler — both succeed in reality.)
+- Receiving ERC-721/1155 tokens via `safeTransferFrom`/`safeMint` succeeds: `TxSimulator` implements `onERC721Received`, `onERC1155Received`, and `onERC1155BatchReceived`, so safe transfers into the simulated account match real execution for EOAs and contract wallets.
 - ERC-777 `send` to the simulated account reverts unless the account has a real ERC-1820 registration on-chain.
 - Permit2-style signature checks are handled for EOAs: the injected `isValidSignature` performs the same ECDSA recovery the real `ecrecover` path would.
 

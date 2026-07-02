@@ -77,6 +77,22 @@ contract TxSimulator is IERC1271Like {
         return _recover(hash, signature) == address(this) ? ERC1271_MAGIC_VALUE : ERC1271_INVALID_VALUE;
     }
 
+    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+        return 0x150b7a02;
+    }
+
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
+        return 0xf23a6e61;
+    }
+
+    function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata)
+        external
+        pure
+        returns (bytes4)
+    {
+        return 0xbc197c81;
+    }
+
     receive() external payable {}
 
     function _snapshotTokens(address[] calldata candidates) internal view returns (TokenState memory tokenState) {

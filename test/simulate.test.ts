@@ -84,6 +84,24 @@ describe("viem-tx-sim", () => {
     expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -250n });
   });
 
+  it("supports safe NFT receipt at the injected account", async () => {
+    const nft = await deploy("MockERC721.sol", "MockERC721");
+    const calldata = encodeFunctionData({
+      abi: nft.abi,
+      functionName: "safeMint",
+      args: [ctx.account.address, 1n],
+    });
+
+    const result = await simulate({
+      client: ctx.publicClient,
+      from: ctx.account.address,
+      calls: [{ to: nft.address, calldata }],
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.assetBalanceDeltas).toContainEqual({ asset: nft.address, delta: 1n });
+  });
+
   it("discovers allowance slots for token outflow", async () => {
     const events: SimulationDebugEvent[] = [];
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
