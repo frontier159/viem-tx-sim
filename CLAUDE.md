@@ -8,6 +8,7 @@ Its core trick is injecting a never-deployed ghost contract at the user's own ad
 ## Architecture
 
 The library uses `viem` as its only runtime dependency and ships as an ESM package.
+Internal modules never import from public modules; public modules may import internal and each other.
 Candidate discovery runs `eth_createAccessList` for each call; touched addresses become candidate assets without token lists, indexers, traces, or centralized simulation APIs.
 Simulation then performs one `eth_call` with state overrides that place `TxSimulator` bytecode at `from`.
 Because the simulator runs at `from`, `address(this)` is the user address, token balance reads target the real account, and calls execute with `msg.sender == from`.
@@ -20,7 +21,7 @@ Never hand-edit files under `src/generated/`; regenerate them with `pnpm build:c
 
 Slot discovery is explicit.
 Balance and allowance slots are found by access-list probing `balanceOf` / `allowance` data, then verifying a sentinel state override.
-The sentinel is `10^50`, deliberately not `uint256.max`, because allowance decrements must still fire for standard ERC-20 implementations.
+The sentinel is `OVERRIDE_TOKEN_AMOUNT` (`10^50`), deliberately not `uint256.max`, because allowance decrements must still fire for standard ERC-20 implementations.
 
 `discoverRequirements()` runs a recon simulation, discovers balance and allowance slots, then runs a forged measurement simulation.
 Allowance probes are recorded as flattened checkpoints with stride `calls.length + 1`, row-major per probe.

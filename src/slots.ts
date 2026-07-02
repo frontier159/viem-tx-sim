@@ -13,7 +13,7 @@ import { discoverBalanceSlot } from "./internal/probes.js";
 import type { BlockOptions } from "./internal/rpc.js";
 import { blockOptionsSpread } from "./internal/rpc.js";
 
-/** Discovers balance storage slots and reports tokens whose slot cannot be verified. */
+/** @internal Implements {@link TxSimulator.discoverBalanceSlots}. Prefer the instance API from the package root. */
 export async function discoverBalanceSlots(
   args: {
     client: PublicClient;
@@ -42,7 +42,7 @@ export async function discoverBalanceSlots(
   };
 }
 
-/** Discovers allowance storage slots and reports pairs whose slot cannot be verified. */
+/** @internal Implements {@link TxSimulator.discoverAllowanceSlots}. Prefer the instance API from the package root. */
 export async function discoverAllowanceSlots(
   args: {
     client: PublicClient;

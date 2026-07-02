@@ -26,6 +26,7 @@ export type RpcCallArgs = {
   debug?: SimulationDebug;
 } & BlockOptions;
 
+/** Returns the block selector for RPC calls; `blockNumber` takes precedence over `blockTag`. */
 export function blockOptionsSpread(args: BlockOptions): BlockOptions {
   return args.blockNumber !== undefined
     ? { blockNumber: args.blockNumber }

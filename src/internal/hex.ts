@@ -1,8 +1,8 @@
 import type { Hex } from "viem";
 
-export const MAX_UINT256 = (1n << 256n) - 1n;
-export const OVERRIDE_TOKEN_AMOUNT = 10n ** 50n;
+export { OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
 
+export const MAX_UINT256 = (1n << 256n) - 1n;
 export function uint256Hex(value: bigint): Hex {
   if (value < 0n || value > MAX_UINT256) {
     throw new RangeError("Value cannot be encoded as uint256.");

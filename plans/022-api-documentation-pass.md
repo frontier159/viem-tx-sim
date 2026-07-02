@@ -59,10 +59,13 @@ code.)
   execution-revert responses.
 - `src/internal/rpc.ts` `blockOptionsSpread`: `blockNumber` wins over
   `blockTag` when both are set.
-- Public functions: `simulate` (`src/simulate.ts`), `discoverBalanceSlots` /
-  `discoverAllowanceSlots` (`src/slots.ts`, one-line JSDoc each),
-  `discoverRequirements` (`src/requirements.ts`), and post-021
-  `TxSimulator` interface + `create` (`src/txSimulator.ts`).
+- Post-021 the public callable surface is ONLY the `TxSimulator` interface +
+  `TxSimulator.create` (`src/txSimulator.ts`) — the four module functions
+  (`simulate`, `discoverBalanceSlots`, `discoverAllowanceSlots`,
+  `discoverRequirements`) are implementation details no longer exported from
+  `src/index.ts`. Consumer-facing JSDoc therefore belongs on the INTERFACE
+  METHODS and `create()` (that is what hover shows); the module functions get
+  brief implementation notes only.
 - README and CLAUDE.md exist and are current per the 016-021 wave; this plan
   syncs only where the constants/exports below change what they should say.
 
@@ -117,15 +120,18 @@ export const OVERRIDE_TOKEN_AMOUNT = 10n ** 50n;
 
 ### Step 2: JSDoc the functions
 
-Standard per function: one-sentence summary; behavior notes a consumer needs
+Standard per method: one-sentence summary; behavior notes a consumer needs
 (what is/isn't forged, what an empty result means, RPC cost shape);
 `@throws` for each typed error it can raise; a compact `@example` on
-`simulate` and `TxSimulator.create` only. Cover: `simulate`,
-`discoverBalanceSlots`, `discoverAllowanceSlots`, `discoverRequirements`,
-`TxSimulator` interface + `create`. State on the discovery functions that
-unresolved entries are reported, not thrown (post-019), and on
-`discoverRequirements` the pad-the-amounts guidance (already in README —
-compress to two lines).
+`TxSimulator.create` and the `simulate` method only. **Primary target: the
+four method signatures on the `TxSimulator` interface plus `create()` in
+`src/txSimulator.ts`** — that is the hover surface consumers see. The
+underlying module functions (`src/simulate.ts`, `src/slots.ts`,
+`src/requirements.ts`) get a one-line implementation note each, pointing at
+the interface docs (avoid maintaining the same paragraphs twice). State on
+the discovery methods that unresolved entries are reported, not thrown
+(post-019), and on `discoverRequirements` the pad-the-amounts guidance
+(already in README — compress to two lines).
 
 **Verify**: `pnpm lint` → exit 0; hover-check spot verification is manual —
 instead machine-check presence:

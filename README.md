@@ -25,13 +25,13 @@ Simulate depositing 1,000 USDS into the sUSDS ERC-4626 vault on mainnet — an a
 ```ts
 import { createPublicClient, encodeFunctionData, http, parseAbi, parseUnits } from "viem";
 import { mainnet } from "viem/chains";
-import { TxSimulator } from "viem-tx-sim";
+import { DEFAULT_SIMULATION_GAS_LIMIT, TxSimulator } from "viem-tx-sim";
 
 const USDS = "0xdC035D45d973E3EC169d2276DDab16f1e407384F";
 const SUSDS = "0xa3931d71877C0E7a3148CB7Eb4463524FEc27fbD";
 
 const client = createPublicClient({ chain: mainnet, transport: http(RPC_URL) });
-const sim = TxSimulator.create({ client });
+const sim = TxSimulator.create({ client, gas: DEFAULT_SIMULATION_GAS_LIMIT });
 
 const user = "0xYourAddress"; // no key or signing involved — any address can be simulated
 const assets = parseUnits("1000", 18);
@@ -68,7 +68,7 @@ console.log(result.assetBalanceDeltas);
 
 Deltas are raw `bigint` amounts in each token's own units, discovered from chain state alone. A revert is returned as `status: "reverted"`, never thrown; checking `status` gives typed access to `revertData` and `failingCallIndex`.
 
-`sim.simulate()` runs against the account's real balances and does not retry or forge state by itself. If `user` doesn't actually hold 1,000 USDS (say you're previewing for a view-only address), forge the balance explicitly with a slot override — see the next section.
+`sim.simulate()` runs against the account's real balances and does not retry or forge state by itself. If `user` doesn't actually hold 1,000 USDS (say you're previewing for a view-only address), forge the balance explicitly with a slot override — see the next section. `DEFAULT_SIMULATION_GAS_LIMIT` is exported for callers that want to pass or display the default 16M simulation gas budget.
 
 ## Forging balances and allowances
 
@@ -94,7 +94,7 @@ const result = await sim.simulate({
 });
 ```
 
-Balance slots are reusable per token/owner, and allowance slots are reusable per token/owner/spender for the block/state you trust.
+Balance slots are reusable per token/owner, and allowance slots are reusable per token/owner/spender for the block/state you trust. When an override omits `amount`, the library writes the exported `OVERRIDE_TOKEN_AMOUNT` sentinel, a non-max `10^50` value chosen so standard ERC-20 allowance decrements remain observable.
 
 ## Discovering requirements (optional)
 
@@ -170,7 +170,7 @@ Situations the simulation does not cover, or where the preview can differ from r
 
 **RPC provider requirements.** The provider must support `eth_createAccessList` (including returning the access list for reverting calls) and `eth_call` with state overrides. Missing support surfaces as `AccessListUnsupportedError` / `StateOverrideUnsupportedError`.
 
-**Not a gas estimator.** The simulation runs under a generous gas budget (16M default) and the injected code changes gas accounting; use `eth_estimateGas` on the real transaction for gas.
+**Not a gas estimator.** The simulation runs under `DEFAULT_SIMULATION_GAS_LIMIT` by default and the injected code changes gas accounting; use `eth_estimateGas` on the real transaction for gas.
 
 ## Development
 

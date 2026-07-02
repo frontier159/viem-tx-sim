@@ -1,3 +1,4 @@
+import { DEFAULT_SIMULATION_GAS_LIMIT } from "./constants.js";
 import { InvalidSimulationInputError } from "./errors.js";
 import type { SimulateArgs, SimulatedCall, SimulationResult } from "./types.js";
 import { uniqueAddresses } from "./internal/address.js";
@@ -7,8 +8,7 @@ import { blockOptionsSpread } from "./internal/rpc.js";
 import { runSimulator } from "./internal/simulator.js";
 import type { StorageOverride } from "./internal/stateOverride.js";
 
-const DEFAULT_SIMULATION_GAS_LIMIT = 16_000_000n;
-
+/** @internal Implements {@link TxSimulator.simulate}. Prefer the instance API from the package root. */
 export async function simulate(args: SimulateArgs): Promise<SimulationResult> {
   if (args.calls.length === 0) {
     throw new InvalidSimulationInputError("simulate requires at least one call.");

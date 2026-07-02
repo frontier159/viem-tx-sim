@@ -1,6 +1,7 @@
 import type { Address, Hex, PublicClient } from "viem";
 import { decodeFunctionData, parseAbi } from "viem";
 
+import { DEFAULT_SIMULATION_GAS_LIMIT } from "./constants.js";
 import { InvalidSimulationInputError } from "./errors.js";
 import type {
   AllowanceSlot,
@@ -23,7 +24,6 @@ import { blockOptionsSpread } from "./internal/rpc.js";
 import { runSimulator } from "./internal/simulator.js";
 import type { StorageOverride } from "./internal/stateOverride.js";
 
-const DEFAULT_SIMULATION_GAS_LIMIT = 16_000_000n;
 const allowanceSettingAbi = parseAbi([
   "function approve(address spender, uint256 amount) returns (bool)",
   "function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)",
@@ -34,6 +34,7 @@ type AllowanceProbe = {
   spender: Address;
 };
 
+/** @internal Implements {@link TxSimulator.discoverRequirements}. Prefer the instance API from the package root. */
 export async function discoverRequirements(
   args: {
     client: PublicClient;
