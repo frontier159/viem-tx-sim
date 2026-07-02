@@ -15,23 +15,25 @@ export async function discoverCandidateAddresses(
     debug?: SimulationDebug;
   } & BlockOptions,
 ): Promise<Address[]> {
-  const candidates: Address[] = [];
-
-  for (const call of args.calls) {
-    candidates.push(call.to);
-    const accessList = await createAccessList({
-      client: args.client,
-      from: args.from,
-      to: call.to,
-      data: call.calldata,
-      value: call.value ?? 0n,
-      gas: args.gas,
-      debug: args.debug,
-      debugStep: "candidateDiscovery.accessList",
-      ...blockOptionsSpread(args),
-    });
-    for (const entry of accessList) candidates.push(entry.address);
-  }
+  const accessLists = await Promise.all(
+    args.calls.map((call) =>
+      createAccessList({
+        client: args.client,
+        from: args.from,
+        to: call.to,
+        data: call.calldata,
+        value: call.value ?? 0n,
+        gas: args.gas,
+        debug: args.debug,
+        debugStep: "candidateDiscovery.accessList",
+        ...blockOptionsSpread(args),
+      }),
+    ),
+  );
+  const candidates = args.calls.flatMap((call, index) => [
+    call.to,
+    ...(accessLists[index] ?? []).map((entry) => entry.address),
+  ]);
 
   return uniqueAddresses(candidates);
 }

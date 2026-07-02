@@ -16,22 +16,20 @@ export async function discoverBalanceSlots(
     debug?: SimulationDebug;
   } & BlockOptions,
 ): Promise<BalanceSlot[]> {
-  const slots: BalanceSlot[] = [];
-
-  for (const token of args.tokens) {
-    const slot = await discoverBalanceSlot({
-      client: args.client,
-      token,
-      owner: args.owner,
-      sentinel: OVERRIDE_TOKEN_AMOUNT,
-      gas: args.gas,
-      debug: args.debug,
-      ...blockOptionsSpread(args),
-    });
-    if (slot !== undefined) slots.push(slot);
-  }
-
-  return slots;
+  const slots = await Promise.all(
+    args.tokens.map((token) =>
+      discoverBalanceSlot({
+        client: args.client,
+        token,
+        owner: args.owner,
+        sentinel: OVERRIDE_TOKEN_AMOUNT,
+        gas: args.gas,
+        debug: args.debug,
+        ...blockOptionsSpread(args),
+      }),
+    ),
+  );
+  return slots.filter((slot): slot is BalanceSlot => slot !== undefined);
 }
 
 /** Discovers allowance storage slots and omits pairs whose slot cannot be verified. */
@@ -47,21 +45,19 @@ export async function discoverAllowanceSlots(
     debug?: SimulationDebug;
   } & BlockOptions,
 ): Promise<AllowanceSlot[]> {
-  const slots: AllowanceSlot[] = [];
-
-  for (const pair of args.pairs) {
-    const slot = await discoverAllowanceSlot({
-      client: args.client,
-      token: pair.token,
-      owner: args.owner,
-      spender: pair.spender,
-      sentinel: OVERRIDE_TOKEN_AMOUNT,
-      gas: args.gas,
-      debug: args.debug,
-      ...blockOptionsSpread(args),
-    });
-    if (slot !== undefined) slots.push(slot);
-  }
-
-  return slots;
+  const slots = await Promise.all(
+    args.pairs.map((pair) =>
+      discoverAllowanceSlot({
+        client: args.client,
+        token: pair.token,
+        owner: args.owner,
+        spender: pair.spender,
+        sentinel: OVERRIDE_TOKEN_AMOUNT,
+        gas: args.gas,
+        debug: args.debug,
+        ...blockOptionsSpread(args),
+      }),
+    ),
+  );
+  return slots.filter((slot): slot is AllowanceSlot => slot !== undefined);
 }

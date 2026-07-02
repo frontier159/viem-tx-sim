@@ -133,30 +133,39 @@ async function discoverAllAllowanceSlots(
     debug?: SimulationDebug;
   } & BlockOptions,
 ): Promise<AllowanceSlot[]> {
-  const slots: AllowanceSlot[] = [];
-  for (const token of args.tokens) {
-    let baseSlot: bigint | undefined;
-    let triedBaseInference = false;
+  const perTokenSlots = await Promise.all(
+    args.tokens.map(async (token) => {
+      const spenders = args.spenders.filter((spender) => addressKey(token) !== addressKey(spender));
+      const firstSpender = spenders[0];
+      if (firstSpender === undefined) return [];
 
-    for (const spender of args.spenders) {
-      if (addressKey(token) === addressKey(spender)) continue;
+      const firstSlot = await discoverProbedAllowanceSlot({
+        ...args,
+        token,
+        spender: firstSpender,
+      });
+      const baseSlot =
+        firstSlot === undefined
+          ? undefined
+          : inferAllowanceBaseSlot({
+              probedSlot: firstSlot.slot,
+              owner: args.from,
+              spender: firstSpender,
+            });
+      const restSlots = await Promise.all(
+        spenders
+          .slice(1)
+          .map((spender) =>
+            baseSlot !== undefined
+              ? discoverComputedAllowanceSlot({ ...args, token, spender, baseSlot })
+              : discoverProbedAllowanceSlot({ ...args, token, spender }),
+          ),
+      );
 
-      const slot =
-        triedBaseInference && baseSlot !== undefined
-          ? await discoverComputedAllowanceSlot({ ...args, token, spender, baseSlot })
-          : await discoverProbedAllowanceSlot({ ...args, token, spender });
-
-      if (!triedBaseInference) {
-        triedBaseInference = true;
-        if (slot !== undefined) {
-          baseSlot = inferAllowanceBaseSlot({ probedSlot: slot.slot, owner: args.from, spender });
-        }
-      }
-
-      if (slot !== undefined) slots.push(slot);
-    }
-  }
-  return slots;
+      return [firstSlot, ...restSlots].filter((slot): slot is AllowanceSlot => slot !== undefined);
+    }),
+  );
+  return perTokenSlots.flat();
 }
 
 async function discoverProbedAllowanceSlot(
