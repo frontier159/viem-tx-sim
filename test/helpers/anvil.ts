@@ -12,18 +12,21 @@ import {
 import { foundry } from "viem/chains";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 
+// 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 export const anvilAccount = privateKeyToAccount(
   "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
 );
+
+// 0x70997970C51812dc3A010C7d01b50e0d17dc79C8
 export const secondAnvilAccount = privateKeyToAccount(
-  "0x59c6995e998f97a5a004497e5da7d459c7d31701c40a76ab9d5f04db938586e9",
+  "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
 );
 
 type AnvilPublicClient = PublicClient<HttpTransport, typeof foundry>;
 type AnvilWalletClient = WalletClient<HttpTransport, typeof foundry, typeof anvilAccount>;
 
 function makePublicClient(url: string): AnvilPublicClient {
-  return createPublicClient({ chain: foundry, transport: http(url) });
+  return createPublicClient({ chain: foundry, pollingInterval: 10, transport: http(url) });
 }
 
 function makeWalletClient(url: string): AnvilWalletClient {

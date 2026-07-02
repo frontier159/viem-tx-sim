@@ -1,11 +1,5 @@
-import type {
-  AccessList,
-  Address,
-  BlockTag,
-  CreateAccessListParameters,
-  Hex,
-  PublicClient,
-} from "viem";
+import type { AccessList, Address, BlockTag, Hex, PublicClient } from "viem";
+import { numberToHex } from "viem";
 
 import { AccessListUnsupportedError } from "../errors.js";
 import type { SimulationDebug } from "../types.js";
@@ -17,6 +11,20 @@ export type BlockOptions = {
 };
 
 export type AccessListEntry = AccessList[number];
+
+type AccessListRpcRequest = {
+  from: Address;
+  to: Address;
+  data: Hex;
+  value?: Hex;
+  gas?: Hex;
+};
+
+type AccessListRpcResult = {
+  accessList?: AccessList;
+  gasUsed?: Hex;
+  error?: string | { message?: string };
+};
 
 export async function createAccessList(
   args: {
@@ -30,25 +38,15 @@ export async function createAccessList(
     debugStep?: string;
   } & BlockOptions,
 ): Promise<AccessList> {
-  const baseRequest = {
-    account: args.from,
+  const request = {
+    from: args.from,
     to: args.to,
     data: args.data,
-    value: args.value ?? 0n,
-  };
-  const request = (
-    args.blockNumber !== undefined
-      ? {
-          ...baseRequest,
-          ...(args.gas !== undefined ? { gas: args.gas } : {}),
-          blockNumber: args.blockNumber,
-        }
-      : {
-          ...baseRequest,
-          ...(args.gas !== undefined ? { gas: args.gas } : {}),
-          ...(args.blockTag !== undefined ? { blockTag: args.blockTag } : {}),
-        }
-  ) satisfies CreateAccessListParameters;
+    ...(args.value !== undefined ? { value: numberToHex(args.value) } : {}),
+    ...(args.gas !== undefined ? { gas: numberToHex(args.gas) } : {}),
+  } satisfies AccessListRpcRequest;
+  const block =
+    args.blockNumber !== undefined ? numberToHex(args.blockNumber) : (args.blockTag ?? "latest");
 
   try {
     const result = await withRpcDebug(
@@ -63,9 +61,11 @@ export async function createAccessList(
           hasGas: args.gas !== undefined,
         },
       },
-      () => args.client.createAccessList(request),
+      () => requestAccessList(args.client, request, block),
     );
-    return result.accessList;
+    if (result.accessList !== undefined) return result.accessList;
+    if (isRpcExecutionRevert(result.error)) return [];
+    throw new Error(formatRpcError("eth_createAccessList returned no access list", result.error));
   } catch (cause) {
     if (isExecutionRevert(cause)) return [];
     throw new AccessListUnsupportedError(formatRpcError("eth_createAccessList failed", cause));
@@ -80,4 +80,24 @@ export function formatRpcError(prefix: string, cause: unknown): string {
 function isExecutionRevert(cause: unknown): boolean {
   if (!(cause instanceof Error)) return false;
   return /execution reverted|Execution reverted/i.test(cause.message);
+}
+
+function isRpcExecutionRevert(error: AccessListRpcResult["error"]): boolean {
+  const message = typeof error === "string" ? error : error?.message;
+  return message !== undefined && /execution reverted|Execution reverted/i.test(message);
+}
+
+async function requestAccessList(
+  client: PublicClient,
+  request: AccessListRpcRequest,
+  block: Hex | BlockTag,
+): Promise<AccessListRpcResult> {
+  return client.request<{
+    Method: "eth_createAccessList";
+    Parameters: [transaction: AccessListRpcRequest, block: Hex | BlockTag];
+    ReturnType: AccessListRpcResult;
+  }>({
+    method: "eth_createAccessList",
+    params: [request, block],
+  });
 }

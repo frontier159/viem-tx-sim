@@ -1,26 +1,13 @@
 import type { Address, CallParameters, Hex, PublicClient, StateOverride } from "viem";
 import { encodeFunctionData } from "viem";
 
-import type { SimulationDebug } from "../types.js";
+import type { AllowanceSlot, BalanceSlot, SimulationDebug } from "../types.js";
 import { erc20ProbeAbi } from "./abi.js";
 import { addressKey } from "./address.js";
 import { withRpcDebug } from "./debug.js";
+import { getCallData, uint256Hex } from "./hex.js";
 import type { BlockOptions } from "./rpc.js";
 import { createAccessList } from "./rpc.js";
-import { uint256Hex } from "./hex.js";
-import { getCallData } from "./hex.js";
-
-export type TokenBalanceSlot = {
-  token: Address;
-  slot: Hex;
-};
-
-export type AllowanceSlot = {
-  token: Address;
-  spender: Address;
-  slot: Hex;
-  currentAllowance: bigint;
-};
 
 export async function readBalanceOf(
   args: {
@@ -28,6 +15,7 @@ export async function readBalanceOf(
     token: Address;
     owner: Address;
     stateOverride?: StateOverride;
+    gas?: bigint;
     debug?: SimulationDebug;
     debugStep?: string;
   } & BlockOptions,
@@ -44,6 +32,7 @@ export async function readBalanceOf(
     to: args.token,
     data,
     stateOverride: args.stateOverride,
+    gas: args.gas,
     debug: args.debug,
     debugStep: args.debugStep ?? "erc20.balanceOf",
     blockNumber: args.blockNumber,
@@ -58,6 +47,7 @@ export async function readAllowance(
     owner: Address;
     spender: Address;
     stateOverride?: StateOverride;
+    gas?: bigint;
     debug?: SimulationDebug;
     debugStep?: string;
   } & BlockOptions,
@@ -74,6 +64,7 @@ export async function readAllowance(
     to: args.token,
     data,
     stateOverride: args.stateOverride,
+    gas: args.gas,
     debug: args.debug,
     debugStep: args.debugStep ?? "erc20.allowance",
     blockNumber: args.blockNumber,
@@ -87,9 +78,10 @@ export async function discoverBalanceSlot(
     token: Address;
     owner: Address;
     sentinel: bigint;
+    gas?: bigint;
     debug?: SimulationDebug;
   } & BlockOptions,
-): Promise<TokenBalanceSlot | undefined> {
+): Promise<BalanceSlot | undefined> {
   const data = encodeFunctionData({
     abi: erc20ProbeAbi,
     functionName: "balanceOf",
@@ -103,6 +95,7 @@ export async function discoverBalanceSlot(
       from: args.owner,
       to: args.token,
       data,
+      gas: args.gas,
       debug: args.debug,
       debugStep: "balanceSlot.accessList",
       blockNumber: args.blockNumber,
@@ -122,6 +115,7 @@ export async function discoverBalanceSlot(
       token: args.token,
       owner: args.owner,
       stateOverride: [{ address: args.token, stateDiff: [{ slot, value: sentinelHex }] }],
+      gas: args.gas,
       debug: args.debug,
       debugStep: "balanceSlot.verify",
       blockNumber: args.blockNumber,
@@ -140,6 +134,7 @@ export async function discoverAllowanceSlot(
     owner: Address;
     spender: Address;
     sentinel: bigint;
+    gas?: bigint;
     debug?: SimulationDebug;
   } & BlockOptions,
 ): Promise<AllowanceSlot | undefined> {
@@ -156,6 +151,7 @@ export async function discoverAllowanceSlot(
       from: args.owner,
       to: args.token,
       data,
+      gas: args.gas,
       debug: args.debug,
       debugStep: "allowanceSlot.accessList",
       blockNumber: args.blockNumber,
@@ -168,18 +164,6 @@ export async function discoverAllowanceSlot(
     return undefined;
   }
 
-  const currentAllowance = await readAllowance({
-    client: args.client,
-    token: args.token,
-    owner: args.owner,
-    spender: args.spender,
-    debug: args.debug,
-    debugStep: "allowanceSlot.currentAllowance",
-    blockNumber: args.blockNumber,
-    blockTag: args.blockTag,
-  });
-  if (currentAllowance === undefined) return undefined;
-
   const sentinelHex = uint256Hex(args.sentinel);
   for (const slot of storageKeys) {
     const allowance = await readAllowance({
@@ -188,6 +172,7 @@ export async function discoverAllowanceSlot(
       owner: args.owner,
       spender: args.spender,
       stateOverride: [{ address: args.token, stateDiff: [{ slot, value: sentinelHex }] }],
+      gas: args.gas,
       debug: args.debug,
       debugStep: "allowanceSlot.verify",
       blockNumber: args.blockNumber,
@@ -198,7 +183,6 @@ export async function discoverAllowanceSlot(
         token: args.token,
         spender: args.spender,
         slot,
-        currentAllowance,
       };
     }
   }
@@ -213,6 +197,7 @@ async function readUint256Call(
     to: Address;
     data: Hex;
     stateOverride?: StateOverride;
+    gas?: bigint;
     debug?: SimulationDebug;
     debugStep: string;
   } & BlockOptions,
@@ -236,6 +221,7 @@ async function readUint256Call(
             to: args.to,
             data: args.data,
             stateOverride: args.stateOverride,
+            gas: args.gas,
             blockNumber: args.blockNumber,
             blockTag: args.blockTag,
           }),
@@ -255,6 +241,7 @@ function buildCallParameters(
     to: Address;
     data: Hex;
     stateOverride?: StateOverride;
+    gas?: bigint;
   } & BlockOptions,
 ): CallParameters {
   const base = {
@@ -262,6 +249,7 @@ function buildCallParameters(
     to: args.to,
     data: args.data,
     ...(args.stateOverride !== undefined ? { stateOverride: args.stateOverride } : {}),
+    ...(args.gas !== undefined ? { gas: args.gas } : {}),
   };
   return (
     args.blockNumber !== undefined

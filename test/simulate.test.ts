@@ -8,7 +8,12 @@ import {
   type Address,
 } from "viem";
 
-import { simulate, type SimulationDebugEvent } from "../src/index.js";
+import {
+  discoverAllowanceSlots,
+  discoverBalanceSlots,
+  simulate,
+  type SimulationDebugEvent,
+} from "../src/index.js";
 import { artifact } from "./helpers/artifacts.js";
 import { type AnvilTestContext, startAnvil } from "./helpers/anvil.js";
 
@@ -79,11 +84,21 @@ describe("viem-tx-sim", () => {
     expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -250n });
   });
 
-  it("discovers allowance gaps from token outflow and attributes the spender", async () => {
+  it("discovers allowance slots for token outflow", async () => {
     const events: SimulationDebugEvent[] = [];
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const spender = await deploy("Spender.sol", "Spender");
     await write(token, "mint", [ctx.account.address, 1_000n]);
+
+    const allowanceSlots = await discoverAllowanceSlots({
+      client: ctx.publicClient,
+      owner: ctx.account.address,
+      pairs: [{ token: token.address, spender: spender.address }],
+    });
+
+    expect(allowanceSlots).toContainEqual(
+      expect.objectContaining({ token: token.address, spender: spender.address }),
+    );
 
     const calldata = encodeFunctionData({
       abi: spender.abi,
@@ -94,24 +109,53 @@ describe("viem-tx-sim", () => {
       client: ctx.publicClient,
       from: ctx.account.address,
       calls: [{ to: spender.address, calldata }],
+      tokenSlotOverrides: allowanceSlots,
       debug: (event) => events.push(event),
+    });
+    console.log(
+      "events",
+      events.filter((event) => event.phase === "start"),
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -321n });
+    expect(
+      events.filter((event) => event.step === "txSimulator.simulate" && event.phase === "start"),
+    ).toHaveLength(1);
+    expect(events.some((event) => event.step === "allowanceSlot.currentAllowance")).toBe(false);
+  });
+
+  it("discovers nested token dependencies from the access list", async () => {
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy("StoredTokenSpender.sol", "StoredTokenSpender", [token.address]);
+    await write(token, "mint", [ctx.account.address, 1_000n]);
+    await write(token, "approve", [spender.address, 123n]);
+
+    const calldata = encodeFunctionData({
+      abi: spender.abi,
+      functionName: "pull",
+      args: [123n],
+    });
+    const result = await simulate({
+      client: ctx.publicClient,
+      from: ctx.account.address,
+      calls: [{ to: spender.address, calldata }],
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({
-      asset: token.address,
-      delta: -321n,
-      spender: spender.address,
-      currentAllowance: 0n,
-    });
-    expect(
-      events.filter((event) => event.step === "txSimulator.simulate" && event.phase === "start"),
-    ).toHaveLength(3);
+    expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -123n });
   });
 
-  it("uses balance storage overrides for view-only insufficient token balances", async () => {
+  it("uses caller-supplied balance storage overrides for view-only token balances", async () => {
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const spender = await deploy("Spender.sol", "Spender");
+    const balanceSlots = await discoverBalanceSlots({
+      client: ctx.publicClient,
+      owner: ctx.account.address,
+      tokens: [token.address],
+    });
+
+    expect(balanceSlots).toContainEqual(expect.objectContaining({ token: token.address }));
 
     const approve = encodeFunctionData({
       abi: token.abi,
@@ -130,6 +174,7 @@ describe("viem-tx-sim", () => {
         { to: token.address, calldata: approve },
         { to: spender.address, calldata: pull },
       ],
+      tokenSlotOverrides: balanceSlots,
     });
 
     expect(result.status).toBe("success");
@@ -162,11 +207,6 @@ describe("viem-tx-sim", () => {
 
     expect(result.status).toBe("success");
     expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -400n });
-    expect(
-      result.assetBalanceDeltas.some(
-        (delta) => delta.asset !== "native" && delta.delta < 0n && delta.spender !== undefined,
-      ),
-    ).toBe(false);
   });
 
   it("supports Permit2-style ERC-1271 signature checks caused by code injection", async () => {
@@ -223,6 +263,13 @@ describe("viem-tx-sim", () => {
     };
     const spender = await deploy("Spender.sol", "Spender");
 
+    const balanceSlots = await discoverBalanceSlots({
+      client: ctx.publicClient,
+      owner: ctx.account.address,
+      tokens: [proxyToken.address],
+    });
+    expect(balanceSlots).toContainEqual(expect.objectContaining({ token: proxyToken.address }));
+
     const approve = encodeFunctionData({
       abi: proxyToken.abi,
       functionName: "approve",
@@ -240,10 +287,41 @@ describe("viem-tx-sim", () => {
         { to: proxyToken.address, calldata: approve },
         { to: spender.address, calldata: pull },
       ],
+      tokenSlotOverrides: balanceSlots,
     });
 
     expect(result.status).toBe("success");
     expect(result.assetBalanceDeltas).toContainEqual({ asset: proxyToken.address, delta: -77n });
+  });
+
+  it("combines balance and allowance overrides", async () => {
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy("Spender.sol", "Spender");
+    const balanceSlots = await discoverBalanceSlots({
+      client: ctx.publicClient,
+      owner: ctx.account.address,
+      tokens: [token.address],
+    });
+    const allowanceSlots = await discoverAllowanceSlots({
+      client: ctx.publicClient,
+      owner: ctx.account.address,
+      pairs: [{ token: token.address, spender: spender.address }],
+    });
+
+    const calldata = encodeFunctionData({
+      abi: spender.abi,
+      functionName: "pull",
+      args: [token.address, 200n],
+    });
+    const result = await simulate({
+      client: ctx.publicClient,
+      from: ctx.account.address,
+      calls: [{ to: spender.address, calldata }],
+      tokenSlotOverrides: [...balanceSlots, ...allowanceSlots],
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -200n });
   });
 
   it("returns unresolved transaction reverts instead of throwing", async () => {

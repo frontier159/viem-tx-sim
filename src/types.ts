@@ -18,6 +18,24 @@ export type SimulationDebugEvent = {
 export type SimulationDebugLogger = (event: SimulationDebugEvent) => void;
 export type SimulationDebug = boolean | SimulationDebugLogger;
 
+export type BalanceSlot = {
+  token: Address;
+  slot: Hex;
+};
+
+export type AllowanceSlot = {
+  token: Address;
+  spender: Address;
+  slot: Hex;
+};
+
+export type TokenSlotOverride = {
+  token: Address;
+  slot: Hex;
+  /** Value written to the slot before simulating. Defaults to 10^50. */
+  amount?: bigint;
+};
+
 export type SimulateArgs = {
   client: PublicClient;
   from: Address;
@@ -26,15 +44,13 @@ export type SimulateArgs = {
   blockTag?: BlockTag;
   gas?: bigint;
   debug?: SimulationDebug;
+  /** Storage-slot overrides applied before simulating. Usually from discoverBalanceSlots/discoverAllowanceSlots. */
+  tokenSlotOverrides?: readonly TokenSlotOverride[];
 };
 
 export type AssetBalanceDelta = {
   asset: "native" | Address;
   delta: bigint;
-  /** Present for negative ERC-20 deltas when one spender can be isolated. */
-  spender?: Address;
-  /** Allowance currently available before simulation. */
-  currentAllowance?: bigint;
 };
 
 export type SimulationResult = {

@@ -18,10 +18,6 @@ import {
   type StorageOverride,
 } from "./stateOverride.js";
 
-export type InternalSimulationResult = SimulationResult & {
-  observedTokens: Address[];
-};
-
 export async function runSimulator(
   args: {
     client: PublicClient;
@@ -34,7 +30,7 @@ export async function runSimulator(
     debug?: import("../types.js").SimulationDebug;
     debugStep?: string;
   } & BlockOptions,
-): Promise<InternalSimulationResult> {
+): Promise<SimulationResult> {
   const data = encodeFunctionData({
     abi: txSimulatorAbi,
     functionName: "simulate",
@@ -100,7 +96,6 @@ export async function runSimulator(
     failingCallIndex: bigint;
     revertData: Hex;
     nativeDelta: bigint;
-    observedTokens: Address[];
     deltaTokens: Address[];
     tokenDeltas: bigint[];
   };
@@ -126,10 +121,9 @@ export async function runSimulator(
   return {
     status,
     assetBalanceDeltas,
-    ...(revertData ? { revertData } : {}),
-    ...(revertData ? { revertReason: decodeRevertReason(revertData) } : {}),
-    ...(failingCallIndex !== undefined ? { failingCallIndex } : {}),
-    observedTokens: uniqueAddresses(result.observedTokens),
+    revertData,
+    revertReason: revertData === undefined ? undefined : decodeRevertReason(revertData),
+    failingCallIndex,
   };
 }
 

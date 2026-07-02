@@ -1,4 +1,4 @@
-import type { Address, Hex, PublicClient } from "viem";
+import type { Address, PublicClient } from "viem";
 
 import type { SimulationDebug } from "../types.js";
 import type { SimulatedCall } from "../types.js";
@@ -19,7 +19,6 @@ export async function discoverCandidateAddresses(
 
   for (const call of args.calls) {
     candidates.push(call.to);
-    candidates.push(...extractCalldataAddresses(call.calldata));
     const accessList = await createAccessList({
       client: args.client,
       from: args.from,
@@ -36,22 +35,4 @@ export async function discoverCandidateAddresses(
   }
 
   return uniqueAddresses(candidates);
-}
-
-function extractCalldataAddresses(data: Hex): Address[] {
-  const hex = data.slice(2);
-  const words = hex.length > 8 ? hex.slice(8) : "";
-  const addresses: Address[] = [];
-
-  for (let offset = 0; offset + 64 <= words.length; offset += 64) {
-    const word = words.slice(offset, offset + 64);
-    if (word.slice(0, 24) !== "0".repeat(24)) continue;
-
-    const address = `0x${word.slice(24)}` as Address;
-    if (address !== "0x0000000000000000000000000000000000000000") {
-      addresses.push(address);
-    }
-  }
-
-  return addresses;
 }

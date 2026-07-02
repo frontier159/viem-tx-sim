@@ -43,9 +43,11 @@ export function buildStateOverride(entries: readonly StateOverrideEntry[]): Stat
 
   return [...merged.values()].map((entry): StateOverrideEntry => {
     if (entry.stateDiff?.length === 0) {
-      const { stateDiff, ...rest } = entry;
-      void stateDiff;
-      return rest;
+      return {
+        address: entry.address,
+        code: entry.code,
+        balance: entry.balance,
+      };
     }
     return entry;
   });

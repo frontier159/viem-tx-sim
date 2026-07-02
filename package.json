@@ -27,6 +27,7 @@
     "lint:fix": "oxlint --fix && oxfmt package.json .oxlintrc.json .oxfmtrc.json tsconfig.json tsconfig.build.json vitest.config.ts src test scripts",
     "test": "pnpm build:contracts && vitest run",
     "test:debug": "VIEM_TX_SIM_DEBUG_RPC=1 pnpm test",
+    "test:mainnet": "pnpm build:contracts && vitest run test/mainnet.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

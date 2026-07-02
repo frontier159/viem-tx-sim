@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-contract TestToken {
+import {IERC20TransferFrom} from "./IERC20TransferFrom.sol";
+
+contract TestToken is IERC20TransferFrom {
+    error AlreadyInitialized();
+    error InsufficientAllowance();
+    error InsufficientBalance();
+
     string public name;
     string public symbol;
     uint8 public decimals;
@@ -18,8 +24,10 @@ contract TestToken {
         initialized = true;
     }
 
-    function initialize(string memory name_, string memory symbol_, uint8 decimals_, address owner, uint256 amount) external {
-        require(!initialized, "initialized");
+    function initialize(string memory name_, string memory symbol_, uint8 decimals_, address owner, uint256 amount)
+        external
+    {
+        if (initialized) revert AlreadyInitialized();
         name = name_;
         symbol = symbol_;
         decimals = decimals_;
@@ -44,7 +52,7 @@ contract TestToken {
 
     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
         uint256 currentAllowance = allowance[from][msg.sender];
-        require(currentAllowance >= amount, "insufficient allowance");
+        if (currentAllowance < amount) revert InsufficientAllowance();
         if (currentAllowance != type(uint256).max) {
             allowance[from][msg.sender] = currentAllowance - amount;
             emit Approval(from, msg.sender, allowance[from][msg.sender]);
@@ -60,7 +68,7 @@ contract TestToken {
     }
 
     function _transfer(address from, address to, uint256 amount) internal {
-        require(balanceOf[from] >= amount, "insufficient balance");
+        if (balanceOf[from] < amount) revert InsufficientBalance();
         balanceOf[from] -= amount;
         balanceOf[to] += amount;
         emit Transfer(from, to, amount);

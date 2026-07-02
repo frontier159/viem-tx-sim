@@ -36,10 +36,18 @@ To see every RPC call the simulator makes during tests:
 pnpm test:debug
 ```
 
+To run the opt-in mainnet RPC integration test:
+
+```sh
+MAINNET_RPC_URL=$MAINNET_RPC_URL pnpm test:mainnet
+```
+
+Set `MAINNET_BLOCK_NUMBER` to override the pinned default block.
+
 You can also enable logging per simulation call:
 
 ```ts
-import { simulate } from 'viem-tx-sim';
+import { simulate } from "viem-tx-sim";
 
 const result = await simulate({
   client,
@@ -62,6 +70,30 @@ await simulate({
 });
 ```
 
-V1 returns raw balance deltas and allowance gaps only. Token metadata, token lists, indexers, centralized simulation APIs, and price enrichment are intentionally out of scope.
+V1 returns raw balance deltas only. Token metadata, token lists, indexers, centralized simulation APIs, approval UX, and price enrichment are intentionally out of scope.
 
-When a high-allowance retry is needed, the negative ERC-20 delta may include `spender` and `currentAllowance`; the required allowance is the absolute value of that negative delta.
+Slot discovery is explicit and cacheable. Discover the slots you want to forge, then pass them into a single simulation run:
+
+```ts
+import { discoverAllowanceSlots, discoverBalanceSlots, simulate } from "viem-tx-sim";
+
+const balanceSlots = await discoverBalanceSlots({
+  client,
+  owner: from,
+  tokens: [token],
+});
+const allowanceSlots = await discoverAllowanceSlots({
+  client,
+  owner: from,
+  pairs: [{ token, spender }],
+});
+
+const result = await simulate({
+  client,
+  from,
+  calls: [{ to, calldata }],
+  tokenSlotOverrides: [...balanceSlots, ...allowanceSlots],
+});
+```
+
+`simulate()` does not retry or forge state by itself. Balance slots are reusable per token/owner, and allowance slots are reusable per token/owner/spender for the block/state you trust.
