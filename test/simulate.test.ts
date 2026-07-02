@@ -6,12 +6,14 @@ import {
   zeroAddress,
   type Abi,
   type Address,
+  type Hex,
 } from "viem";
 
 import {
   discoverAllowanceSlots,
   discoverBalanceSlots,
   simulate,
+  type SimulationResult,
   type SimulationDebugEvent,
 } from "../src/index.js";
 import { artifact } from "./helpers/artifacts.js";
@@ -374,8 +376,9 @@ describe("viem-tx-sim", () => {
       calls: [{ to: target.address, data: "0x12345678" }],
     });
 
-    expect(result.status).toBe("reverted");
+    if (result.status !== "reverted") throw new Error("expected reverted simulation");
     expect(result.revertData).toBeDefined();
+    expect(typeof result.failingCallIndex).toBe("number");
     expect(result.failingCallIndex).toBe(0);
   });
 
@@ -407,3 +410,10 @@ describe("viem-tx-sim", () => {
     await ctx.publicClient.waitForTransactionReceipt({ hash });
   }
 });
+
+function _narrowingCheck(result: SimulationResult): Hex | "ok" {
+  if (result.status === "reverted") return result.revertData;
+  return "ok";
+}
+
+void _narrowingCheck;

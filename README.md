@@ -66,7 +66,7 @@ console.log(result.assetBalanceDeltas);
 // ]
 ```
 
-Deltas are raw `bigint` amounts in each token's own units, discovered from chain state alone. A revert is returned as `status: "reverted"` with the revert data, never thrown.
+Deltas are raw `bigint` amounts in each token's own units, discovered from chain state alone. A revert is returned as `status: "reverted"`, never thrown; checking `status` gives typed access to `revertData` and `failingCallIndex`.
 
 `simulate()` runs against the account's real balances and does not retry or forge state by itself. If `user` doesn't actually hold 1,000 USDS (say you're previewing for a view-only address), forge the balance explicitly with a slot override — see the next section.
 

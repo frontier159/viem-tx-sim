@@ -12,6 +12,8 @@ export type {
   AssetBalanceDelta,
   BalanceSlot,
   DiscoveredRequirements,
+  DiscoveredRequirementsReverted,
+  DiscoveredRequirementsSuccess,
   SimulateArgs,
   SimulatedCall,
   SimulationDebug,
@@ -19,6 +21,8 @@ export type {
   SimulationDebugLogger,
   RequiredAllowance,
   RequiredBalance,
+  SimulationReverted,
   SimulationResult,
+  SimulationSuccess,
   TokenSlotOverride,
 } from "./types.js";

@@ -59,29 +59,45 @@ export type RequiredAllowance = {
   amount: bigint;
 };
 
-export type DiscoveredRequirements = {
-  /** Outcome of the fully-forged measurement simulation. */
-  status: "success" | "reverted";
+type DiscoveredRequirementsBase = {
   /** Max cumulative native outflow across call boundaries. */
   native: bigint;
   balances: RequiredBalance[];
   allowances: RequiredAllowance[];
   /** Verified slots discovered along the way - pass to simulate() as tokenSlotOverrides. */
   slots: TokenSlotOverride[];
-  revertData?: Hex;
-  revertReason?: string;
-  failingCallIndex?: number;
 };
+
+export type DiscoveredRequirementsSuccess = DiscoveredRequirementsBase & {
+  status: "success";
+};
+
+export type DiscoveredRequirementsReverted = DiscoveredRequirementsBase & {
+  status: "reverted";
+  revertData: Hex;
+  revertReason?: string;
+  failingCallIndex: number;
+};
+
+export type DiscoveredRequirements = DiscoveredRequirementsSuccess | DiscoveredRequirementsReverted;
 
 export type AssetBalanceDelta = {
   asset: "native" | Address;
   delta: bigint;
 };
 
-export type SimulationResult = {
-  status: "success" | "reverted";
+export type SimulationSuccess = {
+  status: "success";
   assetBalanceDeltas: AssetBalanceDelta[];
-  revertData?: Hex;
-  revertReason?: string;
-  failingCallIndex?: number;
 };
+
+export type SimulationReverted = {
+  status: "reverted";
+  assetBalanceDeltas: AssetBalanceDelta[];
+  revertData: Hex;
+  /** Present when revertData decodes as a standard Error(string)/Panic. */
+  revertReason?: string;
+  failingCallIndex: number;
+};
+
+export type SimulationResult = SimulationSuccess | SimulationReverted;

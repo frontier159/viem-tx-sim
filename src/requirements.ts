@@ -113,8 +113,7 @@ export async function discoverRequirements(
     ...blockOptionsSpread(args),
   });
 
-  return {
-    status: measurement.status,
+  const shared = {
     native: measurement.probeData.maxNativeOutflow,
     balances: requiredBalances(
       measurement.probeData.candidates,
@@ -130,10 +129,19 @@ export async function discoverRequirements(
       measurement.probeData.maxTokenOutflows,
     ),
     slots: [...balanceSlots, ...allowanceSlots].map(tokenSlotOverride),
-    revertData: measurement.revertData,
-    revertReason: measurement.revertReason,
-    failingCallIndex: measurement.failingCallIndex,
   };
+
+  if (measurement.status === "reverted") {
+    return {
+      status: "reverted",
+      ...shared,
+      revertData: measurement.revertData,
+      ...(measurement.revertReason !== undefined ? { revertReason: measurement.revertReason } : {}),
+      failingCallIndex: measurement.failingCallIndex,
+    };
+  }
+
+  return { status: "success", ...shared };
 }
 
 function allowancePairs(tokens: readonly Address[], spenders: readonly Address[]): AllowancePair[] {

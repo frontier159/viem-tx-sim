@@ -216,7 +216,7 @@ describe("discoverRequirements", () => {
       ],
     });
 
-    expect(requirements.status).toBe("reverted");
+    if (requirements.status !== "reverted") throw new Error("expected reverted requirements");
     expect(requirements.failingCallIndex).toBe(1);
     expect(requirements.balances).toContainEqual({ token: token.address, amount: 100n });
     expect(requirements.allowances).toContainEqual({

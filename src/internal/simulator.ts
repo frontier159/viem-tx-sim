@@ -145,23 +145,29 @@ export async function runSimulator(
     }
   }
 
-  const status = result.success ? "success" : "reverted";
-  const failingCallIndex =
-    result.failingCallIndex === (1n << 256n) - 1n ? undefined : Number(result.failingCallIndex);
-  const revertData = status === "reverted" ? result.revertData : undefined;
+  const probeData = {
+    observedTokens: uniqueAddresses(result.observedTokens),
+    candidates,
+    maxTokenOutflows: result.maxTokenOutflows,
+    maxNativeOutflow: result.maxNativeOutflow,
+    allowanceCheckpoints: result.allowanceCheckpoints,
+  };
+
+  if (!result.success) {
+    const revertReason = decodeRevertReason(result.revertData);
+    return {
+      status: "reverted",
+      assetBalanceDeltas,
+      revertData: result.revertData,
+      ...(revertReason !== undefined ? { revertReason } : {}),
+      failingCallIndex: Number(result.failingCallIndex),
+      probeData,
+    };
+  }
 
   return {
-    status,
+    status: "success",
     assetBalanceDeltas,
-    revertData,
-    revertReason: revertData === undefined ? undefined : decodeRevertReason(revertData),
-    failingCallIndex,
-    probeData: {
-      observedTokens: uniqueAddresses(result.observedTokens),
-      candidates,
-      maxTokenOutflows: result.maxTokenOutflows,
-      maxNativeOutflow: result.maxNativeOutflow,
-      allowanceCheckpoints: result.allowanceCheckpoints,
-    },
+    probeData,
   };
 }
