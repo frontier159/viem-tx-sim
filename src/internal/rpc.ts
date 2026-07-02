@@ -13,10 +13,18 @@ import { AccessListUnsupportedError } from "../errors.js";
 import type { SimulationDebug } from "../types.js";
 import { withRpcDebug } from "./debug.js";
 
+// Internal RPC layer: shared argument types, call-shaping helpers, then RPC wrappers.
+// Add new RPC methods here so debug and infrastructure-error behavior stays consistent.
 export type BlockOptions = {
   blockNumber?: bigint;
   blockTag?: BlockTag;
 };
+
+export type RpcCallArgs = {
+  client: PublicClient;
+  gas?: bigint;
+  debug?: SimulationDebug;
+} & BlockOptions;
 
 export function blockOptionsSpread(args: BlockOptions): BlockOptions {
   return args.blockNumber !== undefined
@@ -66,16 +74,13 @@ type AccessListRpcResult = {
 };
 
 export async function createAccessList(
-  args: {
-    client: PublicClient;
+  args: RpcCallArgs & {
     from: Address;
     to: Address;
     data: Hex;
     value?: bigint;
-    gas?: bigint;
-    debug?: SimulationDebug;
     debugStep?: string;
-  } & BlockOptions,
+  },
 ): Promise<AccessList> {
   const request = {
     from: args.from,

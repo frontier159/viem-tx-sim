@@ -1,23 +1,20 @@
-import type { Address, Hex, PublicClient, StateOverride } from "viem";
+import type { Address, Hex, StateOverride } from "viem";
 import { encodeFunctionData, erc20Abi } from "viem";
 
-import type { AllowanceSlot, BalanceSlot, SimulationDebug } from "../types.js";
+import type { AllowanceSlot, BalanceSlot } from "../types.js";
 import { addressKey } from "./address.js";
 import { withRpcDebug } from "./debug.js";
 import { getCallData, uint256Hex } from "./hex.js";
-import type { BlockOptions } from "./rpc.js";
+import type { RpcCallArgs } from "./rpc.js";
 import { blockOptionsSpread, buildCallParameters, createAccessList } from "./rpc.js";
 
 async function readBalanceOf(
-  args: {
-    client: PublicClient;
+  args: RpcCallArgs & {
     token: Address;
     owner: Address;
     stateOverride?: StateOverride;
-    gas?: bigint;
-    debug?: SimulationDebug;
     debugStep?: string;
-  } & BlockOptions,
+  },
 ): Promise<bigint | undefined> {
   const data = encodeFunctionData({
     abi: erc20Abi,
@@ -39,16 +36,13 @@ async function readBalanceOf(
 }
 
 export async function readAllowance(
-  args: {
-    client: PublicClient;
+  args: RpcCallArgs & {
     token: Address;
     owner: Address;
     spender: Address;
     stateOverride?: StateOverride;
-    gas?: bigint;
-    debug?: SimulationDebug;
     debugStep?: string;
-  } & BlockOptions,
+  },
 ): Promise<bigint | undefined> {
   const data = encodeFunctionData({
     abi: erc20Abi,
@@ -70,14 +64,11 @@ export async function readAllowance(
 }
 
 export async function discoverBalanceSlot(
-  args: {
-    client: PublicClient;
+  args: RpcCallArgs & {
     token: Address;
     owner: Address;
     sentinel: bigint;
-    gas?: bigint;
-    debug?: SimulationDebug;
-  } & BlockOptions,
+  },
 ): Promise<BalanceSlot | undefined> {
   const data = encodeFunctionData({
     abi: erc20Abi,
@@ -123,15 +114,12 @@ export async function discoverBalanceSlot(
 }
 
 export async function discoverAllowanceSlot(
-  args: {
-    client: PublicClient;
+  args: RpcCallArgs & {
     token: Address;
     owner: Address;
     spender: Address;
     sentinel: bigint;
-    gas?: bigint;
-    debug?: SimulationDebug;
-  } & BlockOptions,
+  },
 ): Promise<AllowanceSlot | undefined> {
   const data = encodeFunctionData({
     abi: erc20Abi,
@@ -184,16 +172,13 @@ export async function discoverAllowanceSlot(
 }
 
 async function readUint256Call(
-  args: {
-    client: PublicClient;
+  args: RpcCallArgs & {
     account: Address;
     to: Address;
     data: Hex;
     stateOverride?: StateOverride;
-    gas?: bigint;
-    debug?: SimulationDebug;
     debugStep: string;
-  } & BlockOptions,
+  },
 ): Promise<bigint | undefined> {
   try {
     const result = await withRpcDebug(

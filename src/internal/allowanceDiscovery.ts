@@ -1,11 +1,11 @@
-import type { Address, PublicClient } from "viem";
+import type { Address } from "viem";
 
-import type { AllowanceSlot, SimulationDebug } from "../types.js";
+import type { AllowanceSlot } from "../types.js";
 import { addressKey } from "./address.js";
 import { uint256Hex } from "./hex.js";
 import { allowanceSlotFor, inferAllowanceBaseSlot } from "./layout.js";
 import { discoverAllowanceSlot, readAllowance } from "./probes.js";
-import type { BlockOptions } from "./rpc.js";
+import type { RpcCallArgs } from "./rpc.js";
 import { blockOptionsSpread } from "./rpc.js";
 
 type AllowancePair = {
@@ -18,14 +18,11 @@ type IndexedAllowancePair = AllowancePair & {
 };
 
 export async function discoverAllowanceSlotsWithInference(
-  args: {
-    client: PublicClient;
+  args: RpcCallArgs & {
     from: Address;
     pairs: readonly AllowancePair[];
     sentinel: bigint;
-    gas?: bigint;
-    debug?: SimulationDebug;
-  } & BlockOptions,
+  },
 ): Promise<(AllowanceSlot | undefined)[]> {
   const slots: (AllowanceSlot | undefined)[] = Array.from({ length: args.pairs.length });
   const groups = groupPairsByToken(args.pairs);
@@ -74,15 +71,12 @@ function groupPairsByToken(pairs: readonly AllowancePair[]): IndexedAllowancePai
 }
 
 async function probeAllowanceSlot(
-  args: {
-    client: PublicClient;
+  args: RpcCallArgs & {
     from: Address;
     token: Address;
     spender: Address;
     sentinel: bigint;
-    gas?: bigint;
-    debug?: SimulationDebug;
-  } & BlockOptions,
+  },
 ): Promise<AllowanceSlot | undefined> {
   return discoverAllowanceSlot({
     client: args.client,
@@ -97,16 +91,13 @@ async function probeAllowanceSlot(
 }
 
 async function computeAllowanceSlot(
-  args: {
-    client: PublicClient;
+  args: RpcCallArgs & {
     from: Address;
     token: Address;
     spender: Address;
     baseSlot: bigint;
     sentinel: bigint;
-    gas?: bigint;
-    debug?: SimulationDebug;
-  } & BlockOptions,
+  },
 ): Promise<AllowanceSlot | undefined> {
   const slot = allowanceSlotFor(args.from, args.spender, args.baseSlot);
   const allowance = await readAllowance({

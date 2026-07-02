@@ -1,4 +1,4 @@
-import type { Address, Hex, PublicClient } from "viem";
+import type { Address, Hex } from "viem";
 import { decodeFunctionResult, encodeFunctionData, parseAbi } from "viem";
 
 import type { AssetBalanceDelta, SimulatedCall, SimulationResult } from "../types.js";
@@ -8,7 +8,7 @@ import { uniqueAddresses } from "./address.js";
 import { withRpcDebug } from "./debug.js";
 import { getCallData } from "./hex.js";
 import { decodeRevertReason } from "./revert.js";
-import type { BlockOptions } from "./rpc.js";
+import type { RpcCallArgs } from "./rpc.js";
 import { blockOptionsSpread, buildCallParameters, formatRpcError } from "./rpc.js";
 import {
   buildStateOverride,
@@ -20,9 +20,9 @@ import {
 type ProbeData = {
   observedTokens: Address[];
   candidates: Address[];
-  maxTokenOutflows: bigint[];
+  maxTokenOutflows: readonly bigint[];
   maxNativeOutflow: bigint;
-  allowanceCheckpoints: bigint[];
+  allowanceCheckpoints: readonly bigint[];
 };
 
 export type SimulatorResult = SimulationResult & {
@@ -38,18 +38,15 @@ const txSimulatorAbi = parseAbi([
 ]);
 
 export async function runSimulator(
-  args: {
-    client: PublicClient;
+  args: RpcCallArgs & {
     from: Address;
     calls: readonly SimulatedCall[];
     candidates: readonly Address[];
     storageOverrides?: readonly StorageOverride[];
     extraStateOverrides?: readonly StateOverrideEntry[];
     allowanceProbes?: readonly { token: Address; spender: Address }[];
-    gas?: bigint;
-    debug?: import("../types.js").SimulationDebug;
     debugStep?: string;
-  } & BlockOptions,
+  },
 ): Promise<SimulatorResult> {
   const candidates = uniqueAddresses(args.candidates);
   const data = encodeFunctionData({
@@ -106,26 +103,13 @@ export async function runSimulator(
     );
   }
 
-  let result: {
-    success: boolean;
-    failingCallIndex: bigint;
-    revertData: Hex;
-    nativeDelta: bigint;
-    observedTokens: Address[];
-    deltaTokens: Address[];
-    tokenDeltas: bigint[];
-    maxTokenOutflows: bigint[];
-    maxNativeOutflow: bigint;
-    allowanceCheckpoints: bigint[];
-  };
+  let result;
   try {
-    const decoded = decodeFunctionResult({
+    result = decodeFunctionResult({
       abi: txSimulatorAbi,
       functionName: "simulate",
       data: callData,
-    }) as unknown;
-    const tuple = Array.isArray(decoded) ? decoded[0] : decoded;
-    result = tuple as typeof result;
+    });
   } catch (cause) {
     throw new StateOverrideUnsupportedError(
       formatRpcError("eth_call returned undecodable simulator output", cause),

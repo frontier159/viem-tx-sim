@@ -2,6 +2,7 @@ import type { Address, Hex, StateOverride } from "viem";
 
 import { addressKey, normalizeAddress } from "./address.js";
 
+/** Internal materialized form of public TokenSlotOverride: amount defaulted and hex-encoded, then converted to viem StateOverride by storageOverridesToStateDiff. */
 export type StorageOverride = {
   address: Address;
   slot: Hex;

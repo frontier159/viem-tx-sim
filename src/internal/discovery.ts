@@ -1,19 +1,15 @@
-import type { Address, PublicClient } from "viem";
+import type { Address } from "viem";
 
-import type { SimulationDebug } from "../types.js";
 import type { SimulatedCall } from "../types.js";
 import { uniqueAddresses } from "./address.js";
-import type { BlockOptions } from "./rpc.js";
+import type { RpcCallArgs } from "./rpc.js";
 import { blockOptionsSpread, createAccessList } from "./rpc.js";
 
 export async function discoverCandidateAddresses(
-  args: {
-    client: PublicClient;
+  args: RpcCallArgs & {
     from: Address;
     calls: readonly SimulatedCall[];
-    gas?: bigint;
-    debug?: SimulationDebug;
-  } & BlockOptions,
+  },
 ): Promise<Address[]> {
   const accessLists = await Promise.all(
     args.calls.map((call) =>
