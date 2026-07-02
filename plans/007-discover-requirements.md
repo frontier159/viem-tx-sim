@@ -209,7 +209,7 @@ that file by hand.
   `src/internal/stateOverride.ts`, `src/internal/hex.ts`,
   `src/internal/rpc.ts`, `src/internal/debug.ts`, `src/internal/address.ts`,
   `src/internal/revert.ts`, `src/errors.ts` — reused as-is.
-- `test/simulate.test.ts`, `test/mainnet.test.ts`, `test/docs.test.ts`,
+- `test/simulate.test.ts`, `test/mainnet.test.ts`,
   `docs/motivation.md` — existing behavior is the regression baseline.
 
 ## Git workflow

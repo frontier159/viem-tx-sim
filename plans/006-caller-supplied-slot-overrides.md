@@ -200,7 +200,7 @@ Node 20+, pnpm 10, Foundry (`forge`, `anvil`) required. `pnpm test` runs
   `src/internal/rpc.ts`, `src/internal/debug.ts`, `src/internal/address.ts`,
   `src/internal/revert.ts`, `src/errors.ts` — no changes needed. (Leave the
   unused `"eth_getCode"` member of `SimulationDebugEvent["method"]` alone.)
-- `docs/motivation.md` and `test/docs.test.ts` — the motivation doc is a
+- `docs/motivation.md` — the motivation doc is a
   historical transcription; it intentionally still describes the old retry
   design.
 - `contracts/test/*.sol`, `test/helpers/*` — existing test contracts and

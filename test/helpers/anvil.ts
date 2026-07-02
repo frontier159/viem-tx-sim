@@ -53,7 +53,12 @@ export async function startAnvil(): Promise<AnvilTestContext> {
   const publicClient = makePublicClient(url);
   const walletClient = makeWalletClient(url);
 
-  await waitForAnvil(publicClient, process);
+  try {
+    await waitForAnvil(publicClient, process);
+  } catch (cause) {
+    process.kill();
+    throw cause;
+  }
 
   return {
     port,

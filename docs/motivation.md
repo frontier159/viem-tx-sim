@@ -1,8 +1,8 @@
 # Motivation
 
-This document transcribes the X thread that motivated this package. Text from the posts is represented as markdown. Embedded visual infographics are extracted as image assets. Code screenshots are represented as fenced Solidity snippets.
+This document transcribes the [apoorv X thread](https://x.com/apoorveth/status/2041544070481449266) that motivated this package.
 
-## Post 1
+## Post
 
 Every wallet shows you "asset changes" before you sign a transaction.
 
@@ -12,8 +12,6 @@ We don't. Here's how `@WalletChan_` simulates every transaction using nothing bu
 
 ![Asset changes preview](./assets/motivation/asset-changes.png)
 
-## Post 2
-
 When a dapp asks you to swap 1 ETH for USDC, you want to know EXACTLY what leaves and what arrives.
 
 The standard approach? Send the calldata to a third-party API, trust their servers to simulate it, and hope they return accurate results.
@@ -21,8 +19,6 @@ The standard approach? Send the calldata to a third-party API, trust their serve
 That's a single point of failure. And a privacy leak.
 
 ![Fully decentralized transaction simulation](./assets/motivation/decentralized-simulation.png)
-
-## Post 3
 
 Our approach: make the EVM do the work itself.
 
@@ -34,8 +30,6 @@ Zero servers. Zero trust assumptions. Just the EVM.
 
 ![How the simulation works](./assets/motivation/simulation-flow.png)
 
-## Post 4
-
 This is where it gets fun.
 
 By placing the simulator AT the user's address:
@@ -44,8 +38,6 @@ By placing the simulator AT the user's address:
 - When it calls `to.call{value}(data)`, the target contract sees `msg.sender` == user's address
 
 The simulation is indistinguishable from the real transaction. No impersonation tricks needed.
-
-## Post 5
 
 But how do we know WHICH tokens to check?
 
@@ -58,8 +50,6 @@ It dry-runs the transaction and returns every contract address + storage slot th
 These become our "candidate" tokens.
 
 ![Token discovery with access lists](./assets/motivation/access-list-discovery.png)
-
-## Post 6
 
 The `TxSimulator.sol` contract is ~60 lines of Solidity.
 
@@ -91,8 +81,6 @@ function simulate(
 }
 ```
 
-## Post 7
-
 Putting it all together - when you click "Confirm" on a transaction in WalletChan:
 
 Step 1: `eth_createAccessList` - discover all touched contracts
@@ -106,8 +94,6 @@ Step 4: Fetch USD prices - CoinGecko with portfolio fallback
 Two RPC calls for the simulation itself. Everything else is metadata.
 
 ![End-to-end simulation flow](./assets/motivation/end-to-end-flow.png)
-
-## Post 8
 
 There's a subtle problem: Permit2 checks `extcodesize(msg.sender)`.
 
@@ -128,8 +114,6 @@ function isValidSignature(
 }
 ```
 
-## Post 9
-
 What if the simulation reverts because the user doesn't have enough tokens? (common for impersonated/view-only accounts)
 
 We retry with "storage slot overrides" - and here's the trick to find the right slots:
@@ -140,8 +124,6 @@ Then we override that slot with a large balance and re-simulate. Works for any E
 
 ![Universal storage slot discovery](./assets/motivation/storage-slot-discovery.png)
 
-## Post 10
-
 ERC-5792 batch transactions add another twist: the wallet sends multiple calls as a batch (approve + swap, for example).
 
 Normal `simulate()` can't handle this because state changes need to persist between calls.
@@ -149,8 +131,6 @@ Normal `simulate()` can't handle this because state changes need to persist betw
 `TxSimulator.sol` has a `simulateBatch()` function that executes all calls sequentially in a single EVM execution context. The approval from call 1 is visible to the swap in call 2.
 
 One `eth_call`. Multiple transactions. Cumulative deltas.
-
-## Post 11
 
 How does this compare to other wallets?
 
