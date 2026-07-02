@@ -1,4 +1,4 @@
-import type { Address, Hex } from "viem";
+import type { Abi, Address, Hex } from "viem";
 import { decodeFunctionResult, encodeFunctionData, parseAbi } from "viem";
 
 import type { AssetBalanceDelta, SimulatedCall, SimulationResult } from "../types.js";
@@ -7,7 +7,7 @@ import { txSimulatorRuntimeBytecode } from "../generated/txSimulatorBytecode.js"
 import { uniqueAddresses } from "./address.js";
 import { withRpcDebug } from "./debug.js";
 import { getCallData } from "./hex.js";
-import { decodeRevertReason } from "./revert.js";
+import { decodeRevert } from "./revert.js";
 import type { RpcCallArgs } from "./rpc.js";
 import { blockOptionsSpread, buildCallParameters, formatRpcError } from "./rpc.js";
 import {
@@ -46,6 +46,7 @@ export async function runSimulator(
     extraStateOverrides?: readonly StateOverrideEntry[];
     allowanceProbes?: readonly { token: Address; spender: Address }[];
     debugStep?: string;
+    errorAbi?: Abi;
   },
 ): Promise<SimulatorResult> {
   const candidates = uniqueAddresses(args.candidates);
@@ -138,12 +139,20 @@ export async function runSimulator(
   };
 
   if (!result.success) {
-    const revertReason = decodeRevertReason(result.revertData);
+    const decodedRevert = decodeRevert(result.revertData, args.errorAbi);
     return {
       status: "reverted",
       assetBalanceDeltas,
       revertData: result.revertData,
-      ...(revertReason !== undefined ? { revertReason } : {}),
+      ...(decodedRevert.revertReason !== undefined
+        ? { revertReason: decodedRevert.revertReason }
+        : {}),
+      ...(decodedRevert.revertError !== undefined
+        ? { revertError: decodedRevert.revertError }
+        : {}),
+      ...(decodedRevert.revertSelector !== undefined
+        ? { revertSelector: decodedRevert.revertSelector }
+        : {}),
       failingCallIndex: Number(result.failingCallIndex),
       probeData,
     };

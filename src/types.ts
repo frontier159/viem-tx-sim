@@ -1,4 +1,4 @@
-import type { Address, BlockTag, Hex, PublicClient } from "viem";
+import type { Abi, Address, BlockTag, Hex, PublicClient } from "viem";
 
 /** One transaction-like call to execute during a simulation batch. */
 export type SimulatedCall = {
@@ -79,6 +79,12 @@ export type AllowanceSlotDiscovery = {
   unresolved: AllowanceSlotPair[];
 };
 
+/** ABI-decoded revert error, present when revertData matches supplied error definitions or a built-in Error/Panic. */
+export type RevertError = {
+  name: string;
+  args: readonly unknown[];
+};
+
 /** Storage slot value to forge before running a simulation. */
 export type TokenSlotOverride = {
   /** Token contract whose storage should be overridden. */
@@ -97,6 +103,8 @@ export type SimulateArgs = SimulationOptions & {
   calls: readonly SimulatedCall[];
   /** Storage-slot overrides applied before simulating. Usually from slot discovery. */
   tokenSlotOverrides?: readonly TokenSlotOverride[];
+  /** Additional error definitions for decoding this call's reverts; merged after the bound errorAbi. */
+  errorAbi?: Abi;
 };
 
 /** Arguments for `TxSimulator.discoverBalanceSlots`. */
@@ -121,6 +129,8 @@ export type DiscoverRequirementsArgs = SimulationOptions & {
   from: Address;
   /** One call or an ERC-5792-style sequential batch. Must contain at least one call. */
   calls: readonly SimulatedCall[];
+  /** Additional error definitions for decoding this call's reverts; merged after the bound errorAbi. */
+  errorAbi?: Abi;
 };
 
 /** Configuration for `TxSimulator.create`. */
@@ -130,6 +140,8 @@ export type TxSimulatorConfig = {
   gas?: bigint;
   /** Default debug setting for all calls; per-call `debug` wins. */
   debug?: SimulationDebug;
+  /** Error definitions used to decode custom-error reverts; merged with per-call errorAbi. */
+  errorAbi?: Abi;
 };
 
 /** Minimum token balance requirement measured under forged state. */
@@ -175,8 +187,12 @@ export type DiscoveredRequirementsReverted = DiscoveredRequirementsBase & {
   status: "reverted";
   /** Raw EVM revert data from the failing simulated call. */
   revertData: Hex;
-  /** Present when `revertData` decodes as standard `Error(string)` or `Panic(uint256)`. */
+  /** Human-readable decoded revert; present when revertData decodes via supplied error definitions or as built-in Error/Panic. */
   revertReason?: string;
+  /** Decoded error when revertData matches supplied error definitions or built-in Error/Panic. */
+  revertError?: RevertError;
+  /** First 4 bytes of revertData; present whenever revertData carries a selector. */
+  revertSelector?: Hex;
   /** Zero-based index of the call that reverted. */
   failingCallIndex: number;
 };
@@ -206,8 +222,12 @@ export type SimulationReverted = {
   assetBalanceDeltas: AssetBalanceDelta[];
   /** Raw EVM revert data from the failing simulated call. */
   revertData: Hex;
-  /** Present when revertData decodes as a standard Error(string)/Panic. */
+  /** Human-readable decoded revert; present when revertData decodes via supplied error definitions or as built-in Error/Panic. */
   revertReason?: string;
+  /** Decoded error when revertData matches supplied error definitions or built-in Error/Panic. */
+  revertError?: RevertError;
+  /** First 4 bytes of revertData; present whenever revertData carries a selector. */
+  revertSelector?: Hex;
   /** Zero-based index of the call that reverted. */
   failingCallIndex: number;
 };

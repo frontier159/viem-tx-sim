@@ -143,6 +143,12 @@ await sim.simulate({
 });
 ```
 
+## Decoding Reverts
+
+Reverted simulations always return raw `revertData` and, when present, a `revertSelector`.
+Pass custom errors as `errorAbi` on `TxSimulator.create({ client, errorAbi })` or on a single `sim.simulate({ ..., errorAbi })` call to populate `revertError` and human-readable `revertReason`.
+For example: `errorAbi: parseAbi(["error InsufficientBalance(uint256 have, uint256 want)"])`.
+
 ## Known limitations
 
 Situations the simulation does not cover, or where the preview can differ from real execution. None of these throw — they show up as wrong or missing deltas, or as a simulated revert where the real transaction would succeed (or vice versa).

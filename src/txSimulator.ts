@@ -24,6 +24,7 @@ import type {
 type BoundCallDefaults = {
   gas?: bigint;
   debug?: TxSimulatorConfig["debug"];
+  errorAbi?: TxSimulatorConfig["errorAbi"];
 };
 
 /**
@@ -118,15 +119,23 @@ export const TxSimulator = {
         ...(debug !== undefined ? { debug } : {}),
       };
     };
+    const revertDefaults = (args: BoundCallDefaults) => {
+      const errorAbi = [...(bound.errorAbi ?? []), ...(args.errorAbi ?? [])];
+
+      return {
+        ...defaults(args),
+        ...(errorAbi.length > 0 ? { errorAbi } : {}),
+      };
+    };
 
     return {
-      simulate: (args) => runSimulate({ ...args, ...defaults(args), client: bound.client }),
+      simulate: (args) => runSimulate({ ...args, ...revertDefaults(args), client: bound.client }),
       discoverBalanceSlots: (args) =>
         discoverBalanceSlots({ ...args, ...defaults(args), client: bound.client }),
       discoverAllowanceSlots: (args) =>
         discoverAllowanceSlots({ ...args, ...defaults(args), client: bound.client }),
       discoverRequirements: (args) =>
-        discoverRequirements({ ...args, ...defaults(args), client: bound.client }),
+        discoverRequirements({ ...args, ...revertDefaults(args), client: bound.client }),
     };
   },
 };
@@ -170,5 +179,6 @@ async function runSimulate(args: SimulateArgs & ClientArgs): Promise<SimulationR
     debug: args.debug,
     ...blockOptionsSpread(args),
     gas,
+    ...(args.errorAbi !== undefined ? { errorAbi: args.errorAbi } : {}),
   });
 }

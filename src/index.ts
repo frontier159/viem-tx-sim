@@ -26,6 +26,7 @@ export type {
   SimulationDebugLogger,
   RequiredAllowance,
   RequiredBalance,
+  RevertError,
   SimulationReverted,
   SimulationResult,
   SimulationSuccess,

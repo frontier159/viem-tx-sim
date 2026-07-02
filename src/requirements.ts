@@ -62,6 +62,7 @@ export async function discoverRequirements(
     gas,
     debug: args.debug,
     ...blockOptionsSpread(args),
+    ...(args.errorAbi !== undefined ? { errorAbi: args.errorAbi } : {}),
   });
   const tokens = recon.probeData.observedTokens;
   const spenders = uniqueAddresses([...calls.map((call) => call.to), ...candidateAddresses]).filter(
@@ -101,6 +102,7 @@ export async function discoverRequirements(
     gas,
     debug: args.debug,
     ...blockOptionsSpread(args),
+    ...(args.errorAbi !== undefined ? { errorAbi: args.errorAbi } : {}),
   });
   const measuredAllowances = requiredAllowances(
     args.from,
@@ -133,6 +135,10 @@ export async function discoverRequirements(
       ...shared,
       revertData: measurement.revertData,
       ...(measurement.revertReason !== undefined ? { revertReason: measurement.revertReason } : {}),
+      ...(measurement.revertError !== undefined ? { revertError: measurement.revertError } : {}),
+      ...(measurement.revertSelector !== undefined
+        ? { revertSelector: measurement.revertSelector }
+        : {}),
       failingCallIndex: measurement.failingCallIndex,
     };
   }

@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   encodeFunctionData,
   getAddress,
+  parseAbi,
   parseEther,
+  slice,
   zeroAddress,
   type Abi,
   type Address,
@@ -364,6 +366,95 @@ describe("viem-tx-sim", () => {
 
     expect(result.status).toBe("success");
     expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -200n });
+  });
+
+  it("decodes custom error reverts with per-call ABI", async () => {
+    const target = await deploy("CustomErrorTarget.sol", "CustomErrorTarget");
+    const errorAbi = parseAbi(["error InsufficientBalance(uint256 have, uint256 want)"]);
+    const data = encodeFunctionData({
+      abi: target.abi,
+      functionName: "failWithArgs",
+      args: [1n, 2n],
+    });
+
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: target.address, data }],
+      errorAbi,
+    });
+
+    if (result.status !== "reverted") throw new Error("expected reverted simulation");
+    expect(result.revertError).toEqual({ name: "InsufficientBalance", args: [1n, 2n] });
+    expect(result.revertReason).toBe("InsufficientBalance(1, 2)");
+    expect(result.revertSelector).toBeDefined();
+  });
+
+  it("reports a revert selector when custom error ABI is not provided", async () => {
+    const target = await deploy("CustomErrorTarget.sol", "CustomErrorTarget");
+    const data = encodeFunctionData({
+      abi: target.abi,
+      functionName: "failWithArgs",
+      args: [1n, 2n],
+    });
+
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: target.address, data }],
+    });
+
+    if (result.status !== "reverted") throw new Error("expected reverted simulation");
+    expect(result.revertError).toBeUndefined();
+    expect(result.revertReason).toBeUndefined();
+    expect(result.revertSelector).toBe(slice(result.revertData, 0, 4));
+  });
+
+  it("merges bound and per-call error ABIs", async () => {
+    const target = await deploy("CustomErrorTarget.sol", "CustomErrorTarget");
+    const customSim = TxSimulator.create({
+      client: ctx.publicClient,
+      errorAbi: parseAbi(["error Unauthorized()"]),
+    });
+    const unauthorized = encodeFunctionData({
+      abi: target.abi,
+      functionName: "failPlain",
+    });
+    const insufficient = encodeFunctionData({
+      abi: target.abi,
+      functionName: "failWithArgs",
+      args: [3n, 5n],
+    });
+
+    const boundResult = await customSim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: target.address, data: unauthorized }],
+    });
+    const mergedResult = await customSim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: target.address, data: insufficient }],
+      errorAbi: parseAbi(["error InsufficientBalance(uint256 have, uint256 want)"]),
+    });
+
+    if (boundResult.status !== "reverted") throw new Error("expected reverted simulation");
+    if (mergedResult.status !== "reverted") throw new Error("expected reverted simulation");
+    expect(boundResult.revertError).toEqual({ name: "Unauthorized", args: [] });
+    expect(mergedResult.revertError).toEqual({ name: "InsufficientBalance", args: [3n, 5n] });
+  });
+
+  it("decodes built-in Error(string) reverts", async () => {
+    const target = await deploy("CustomErrorTarget.sol", "CustomErrorTarget");
+    const data = encodeFunctionData({
+      abi: target.abi,
+      functionName: "failString",
+    });
+
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: target.address, data }],
+    });
+
+    if (result.status !== "reverted") throw new Error("expected reverted simulation");
+    expect(result.revertReason).toBe("string revert");
+    expect(result.revertError).toEqual({ name: "Error", args: ["string revert"] });
   });
 
   it("returns unresolved transaction reverts instead of throwing", async () => {
