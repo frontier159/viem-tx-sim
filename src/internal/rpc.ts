@@ -20,6 +20,9 @@ export type BlockOptions = {
   blockTag?: BlockTag;
 };
 
+/** Attaches the bound viem client to public per-call args for internal implementations. */
+export type ClientArgs = { client: PublicClient };
+
 export type RpcCallArgs = {
   client: PublicClient;
   gas?: bigint;

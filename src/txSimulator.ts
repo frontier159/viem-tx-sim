@@ -1,25 +1,30 @@
-import type { PublicClient } from "viem";
-
+import { DEFAULT_SIMULATION_GAS_LIMIT } from "./constants.js";
+import { InvalidSimulationInputError } from "./errors.js";
 import { discoverRequirements } from "./requirements.js";
-import { simulate } from "./simulate.js";
-import { discoverAllowanceSlots, discoverBalanceSlots } from "./slots.js";
-import type { SimulateArgs, SimulationDebug } from "./types.js";
-
-type BoundArgs = {
-  client: PublicClient;
-  gas?: bigint;
-  debug?: SimulationDebug;
-};
+import { uniqueAddresses } from "./internal/address.js";
+import { discoverCandidateAddresses } from "./internal/discovery.js";
+import { OVERRIDE_TOKEN_AMOUNT, uint256Hex } from "./internal/hex.js";
+import { blockOptionsSpread, type ClientArgs } from "./internal/rpc.js";
+import { runSimulator } from "./internal/simulator.js";
+import { discoverAllowanceSlots, discoverBalanceSlots } from "./internal/slotDiscovery.js";
+import type { StorageOverride } from "./internal/stateOverride.js";
+import type {
+  AllowanceSlotDiscovery,
+  BalanceSlotDiscovery,
+  DiscoverAllowanceSlotsArgs,
+  DiscoverBalanceSlotsArgs,
+  DiscoverRequirementsArgs,
+  DiscoveredRequirements,
+  SimulateArgs,
+  SimulatedCall,
+  SimulationResult,
+  TxSimulatorConfig,
+} from "./types.js";
 
 type BoundCallDefaults = {
   gas?: bigint;
-  debug?: SimulationDebug;
+  debug?: TxSimulatorConfig["debug"];
 };
-
-type BoundSimulateArgs = Omit<SimulateArgs, "client">;
-type BoundBalanceSlotsArgs = Omit<Parameters<typeof discoverBalanceSlots>[0], "client">;
-type BoundAllowanceSlotsArgs = Omit<Parameters<typeof discoverAllowanceSlots>[0], "client">;
-type BoundRequirementsArgs = Omit<Parameters<typeof discoverRequirements>[0], "client">;
 
 /**
  * Bound transaction simulator for one viem public client.
@@ -51,7 +56,7 @@ export interface TxSimulator {
    * });
    * ```
    */
-  simulate: (args: BoundSimulateArgs) => ReturnType<typeof simulate>;
+  simulate: (args: SimulateArgs) => Promise<SimulationResult>;
 
   /**
    * Discovers ERC-20 balance storage slots for tokens owned by `from`.
@@ -61,7 +66,7 @@ export interface TxSimulator {
    *
    * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
    */
-  discoverBalanceSlots: (args: BoundBalanceSlotsArgs) => ReturnType<typeof discoverBalanceSlots>;
+  discoverBalanceSlots: (args: DiscoverBalanceSlotsArgs) => Promise<BalanceSlotDiscovery>;
 
   /**
    * Discovers ERC-20 allowance storage slots for token/spender pairs owned by `from`.
@@ -72,9 +77,7 @@ export interface TxSimulator {
    *
    * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
    */
-  discoverAllowanceSlots: (
-    args: BoundAllowanceSlotsArgs,
-  ) => ReturnType<typeof discoverAllowanceSlots>;
+  discoverAllowanceSlots: (args: DiscoverAllowanceSlotsArgs) => Promise<AllowanceSlotDiscovery>;
 
   /**
    * Measures required balances and approvals by forging generous state and observing outflows.
@@ -88,7 +91,7 @@ export interface TxSimulator {
    * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides or
    * returns undecodable simulator output.
    */
-  discoverRequirements: (args: BoundRequirementsArgs) => ReturnType<typeof discoverRequirements>;
+  discoverRequirements: (args: DiscoverRequirementsArgs) => Promise<DiscoveredRequirements>;
 }
 
 /** Factory for {@link TxSimulator} instances bound to one viem public client. */
@@ -105,7 +108,7 @@ export const TxSimulator = {
    * const result = await sim.simulate({ from, calls });
    * ```
    */
-  create(bound: BoundArgs): TxSimulator {
+  create(bound: TxSimulatorConfig): TxSimulator {
     const defaults = (args: BoundCallDefaults) => {
       const gas = args.gas ?? bound.gas;
       const debug = args.debug ?? bound.debug;
@@ -117,7 +120,7 @@ export const TxSimulator = {
     };
 
     return {
-      simulate: (args) => simulate({ ...args, ...defaults(args), client: bound.client }),
+      simulate: (args) => runSimulate({ ...args, ...defaults(args), client: bound.client }),
       discoverBalanceSlots: (args) =>
         discoverBalanceSlots({ ...args, ...defaults(args), client: bound.client }),
       discoverAllowanceSlots: (args) =>
@@ -127,3 +130,45 @@ export const TxSimulator = {
     };
   },
 };
+
+async function runSimulate(args: SimulateArgs & ClientArgs): Promise<SimulationResult> {
+  if (args.calls.length === 0) {
+    throw new InvalidSimulationInputError("simulate requires at least one call.");
+  }
+
+  const gas = args.gas ?? DEFAULT_SIMULATION_GAS_LIMIT;
+  const calls = args.calls.map((call) => ({
+    to: call.to,
+    data: call.data,
+    value: call.value ?? 0n,
+  })) satisfies SimulatedCall[];
+  const candidateAddresses = await discoverCandidateAddresses({
+    client: args.client,
+    from: args.from,
+    calls,
+    ...blockOptionsSpread(args),
+    gas,
+    ...(args.debug !== undefined ? { debug: args.debug } : {}),
+  });
+
+  const tokenSlotOverrides = args.tokenSlotOverrides ?? [];
+  const storageOverrides: StorageOverride[] = tokenSlotOverrides.map((override) => ({
+    address: override.token,
+    slot: override.slot,
+    value: uint256Hex(override.amount ?? OVERRIDE_TOKEN_AMOUNT),
+  }));
+
+  return runSimulator({
+    client: args.client,
+    from: args.from,
+    calls,
+    candidates: uniqueAddresses([
+      ...candidateAddresses,
+      ...tokenSlotOverrides.map((slot) => slot.token),
+    ]),
+    storageOverrides,
+    debug: args.debug,
+    ...blockOptionsSpread(args),
+    gas,
+  });
+}

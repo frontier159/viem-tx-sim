@@ -1,4 +1,4 @@
-import type { Address, Hex, PublicClient } from "viem";
+import type { Address, Hex } from "viem";
 import { decodeFunctionData, parseAbi } from "viem";
 
 import { DEFAULT_SIMULATION_GAS_LIMIT } from "./constants.js";
@@ -8,18 +8,15 @@ import type {
   AllowanceSlotPair,
   BalanceSlot,
   DiscoveredRequirements,
+  DiscoverRequirementsArgs,
   SimulatedCall,
-  SimulationDebug,
   TokenSlotOverride,
 } from "./types.js";
-import {
-  discoverAllowanceSlots as discoverPublicAllowanceSlots,
-  discoverBalanceSlots as discoverPublicBalanceSlots,
-} from "./slots.js";
+import { discoverAllowanceSlots, discoverBalanceSlots } from "./internal/slotDiscovery.js";
 import { addressKey, uniqueAddresses } from "./internal/address.js";
 import { discoverCandidateAddresses } from "./internal/discovery.js";
 import { OVERRIDE_TOKEN_AMOUNT, uint256Hex } from "./internal/hex.js";
-import type { BlockOptions } from "./internal/rpc.js";
+import type { ClientArgs } from "./internal/rpc.js";
 import { blockOptionsSpread } from "./internal/rpc.js";
 import { runSimulator } from "./internal/simulator.js";
 import type { StorageOverride } from "./internal/stateOverride.js";
@@ -36,13 +33,7 @@ type AllowanceProbe = {
 
 /** @internal Implements {@link TxSimulator.discoverRequirements}. Prefer the instance API from the package root. */
 export async function discoverRequirements(
-  args: {
-    client: PublicClient;
-    from: Address;
-    calls: readonly SimulatedCall[];
-    gas?: bigint;
-    debug?: SimulationDebug;
-  } & BlockOptions,
+  args: DiscoverRequirementsArgs & ClientArgs,
 ): Promise<DiscoveredRequirements> {
   if (args.calls.length === 0) {
     throw new InvalidSimulationInputError("discoverRequirements requires at least one call.");
@@ -77,7 +68,7 @@ export async function discoverRequirements(
     (address) => addressKey(address) !== addressKey(args.from),
   );
 
-  const balanceDiscovery = await discoverPublicBalanceSlots({
+  const balanceDiscovery = await discoverBalanceSlots({
     client: args.client,
     from: args.from,
     tokens,
@@ -85,7 +76,7 @@ export async function discoverRequirements(
     debug: args.debug,
     ...blockOptionsSpread(args),
   });
-  const allowanceDiscovery = await discoverPublicAllowanceSlots({
+  const allowanceDiscovery = await discoverAllowanceSlots({
     client: args.client,
     from: args.from,
     pairs: allowancePairs(tokens, spenders),

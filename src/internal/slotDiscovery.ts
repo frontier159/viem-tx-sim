@@ -1,27 +1,20 @@
-import type { Address, PublicClient } from "viem";
-
 import type {
   AllowanceSlot,
   AllowanceSlotDiscovery,
   BalanceSlot,
   BalanceSlotDiscovery,
-  SimulationDebug,
-} from "./types.js";
-import { discoverAllowanceSlotsWithInference } from "./internal/allowanceDiscovery.js";
-import { OVERRIDE_TOKEN_AMOUNT } from "./internal/hex.js";
-import { discoverBalanceSlot } from "./internal/probes.js";
-import type { BlockOptions } from "./internal/rpc.js";
-import { blockOptionsSpread } from "./internal/rpc.js";
+  DiscoverAllowanceSlotsArgs,
+  DiscoverBalanceSlotsArgs,
+} from "../types.js";
+import { discoverAllowanceSlotsWithInference } from "./allowanceDiscovery.js";
+import { OVERRIDE_TOKEN_AMOUNT } from "./hex.js";
+import { discoverBalanceSlot } from "./probes.js";
+import type { ClientArgs } from "./rpc.js";
+import { blockOptionsSpread } from "./rpc.js";
 
-/** @internal Implements {@link TxSimulator.discoverBalanceSlots}. Prefer the instance API from the package root. */
+/** @internal Implements `TxSimulator.discoverBalanceSlots`. Prefer the instance API from the package root. */
 export async function discoverBalanceSlots(
-  args: {
-    client: PublicClient;
-    from: Address;
-    tokens: readonly Address[];
-    gas?: bigint;
-    debug?: SimulationDebug;
-  } & BlockOptions,
+  args: DiscoverBalanceSlotsArgs & ClientArgs,
 ): Promise<BalanceSlotDiscovery> {
   const slots = await Promise.all(
     args.tokens.map((token) =>
@@ -42,18 +35,9 @@ export async function discoverBalanceSlots(
   };
 }
 
-/** @internal Implements {@link TxSimulator.discoverAllowanceSlots}. Prefer the instance API from the package root. */
+/** @internal Implements `TxSimulator.discoverAllowanceSlots`. Prefer the instance API from the package root. */
 export async function discoverAllowanceSlots(
-  args: {
-    client: PublicClient;
-    from: Address;
-    pairs: readonly {
-      token: Address;
-      spender: Address;
-    }[];
-    gas?: bigint;
-    debug?: SimulationDebug;
-  } & BlockOptions,
+  args: DiscoverAllowanceSlotsArgs & ClientArgs,
 ): Promise<AllowanceSlotDiscovery> {
   const slots = await discoverAllowanceSlotsWithInference({
     client: args.client,

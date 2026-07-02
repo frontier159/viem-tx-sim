@@ -32,6 +32,18 @@ export type SimulationDebugLogger = (event: SimulationDebugEvent) => void;
 /** Debug option: `true` logs to the console, a callback receives structured events. */
 export type SimulationDebug = boolean | SimulationDebugLogger;
 
+/** Shared per-call options for block selection, gas budget, and debug events. */
+type SimulationOptions = {
+  /** Historical block number to simulate against; if both block options are set, this wins. */
+  blockNumber?: bigint;
+  /** Block tag to simulate against when `blockNumber` is not set. */
+  blockTag?: BlockTag;
+  /** Gas budget for simulation RPC calls. Defaults to `DEFAULT_SIMULATION_GAS_LIMIT`. */
+  gas?: bigint;
+  /** Enables console logging or structured debug events for simulator RPC calls. */
+  debug?: SimulationDebug;
+};
+
 /** Verified ERC-20 balance mapping slot for one token and owner. */
 export type BalanceSlot = {
   token: Address;
@@ -77,24 +89,47 @@ export type TokenSlotOverride = {
   amount?: bigint;
 };
 
-/** Arguments for the internal simulation implementation; public callers normally use `TxSimulator`. */
-export type SimulateArgs = {
-  /** viem public client used for all RPC calls. */
-  client: PublicClient;
+/** Arguments for `TxSimulator.simulate`. */
+export type SimulateArgs = SimulationOptions & {
   /** Account being simulated; the ghost simulator bytecode is injected at this address. */
   from: Address;
   /** One call or an ERC-5792-style sequential batch. Must contain at least one call. */
   calls: readonly SimulatedCall[];
-  /** Historical block number to simulate against; if both block options are set, this wins. */
-  blockNumber?: bigint;
-  /** Block tag to simulate against when `blockNumber` is not set. */
-  blockTag?: BlockTag;
-  /** Gas budget for simulation RPC calls. Defaults to `DEFAULT_SIMULATION_GAS_LIMIT`. */
-  gas?: bigint;
-  /** Enables console logging or structured debug events for simulator RPC calls. */
-  debug?: SimulationDebug;
   /** Storage-slot overrides applied before simulating. Usually from slot discovery. */
   tokenSlotOverrides?: readonly TokenSlotOverride[];
+};
+
+/** Arguments for `TxSimulator.discoverBalanceSlots`. */
+export type DiscoverBalanceSlotsArgs = SimulationOptions & {
+  /** Account whose token balance storage slots should be found. */
+  from: Address;
+  /** Tokens to probe for ERC-20-style balance slots. */
+  tokens: readonly Address[];
+};
+
+/** Arguments for `TxSimulator.discoverAllowanceSlots`. */
+export type DiscoverAllowanceSlotsArgs = SimulationOptions & {
+  /** Account whose allowance storage slots should be found. */
+  from: Address;
+  /** Token/spender allowance pairs to probe. */
+  pairs: readonly AllowanceSlotPair[];
+};
+
+/** Arguments for `TxSimulator.discoverRequirements`. */
+export type DiscoverRequirementsArgs = SimulationOptions & {
+  /** Account whose balances and approvals should be measured. */
+  from: Address;
+  /** One call or an ERC-5792-style sequential batch. Must contain at least one call. */
+  calls: readonly SimulatedCall[];
+};
+
+/** Configuration for `TxSimulator.create`. */
+export type TxSimulatorConfig = {
+  client: PublicClient;
+  /** Default gas budget for all calls; per-call `gas` wins. */
+  gas?: bigint;
+  /** Default debug setting for all calls; per-call `debug` wins. */
+  debug?: SimulationDebug;
 };
 
 /** Minimum token balance requirement measured under forged state. */
