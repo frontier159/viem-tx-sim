@@ -1,8 +1,9 @@
 import type { Address, PublicClient } from "viem";
 
 import type { AllowanceSlot, BalanceSlot, SimulationDebug } from "./types.js";
+import { discoverAllowanceSlotsWithInference } from "./internal/allowanceDiscovery.js";
 import { OVERRIDE_TOKEN_AMOUNT } from "./internal/hex.js";
-import { discoverAllowanceSlot, discoverBalanceSlot } from "./internal/probes.js";
+import { discoverBalanceSlot } from "./internal/probes.js";
 import type { BlockOptions } from "./internal/rpc.js";
 import { blockOptionsSpread } from "./internal/rpc.js";
 
@@ -45,19 +46,14 @@ export async function discoverAllowanceSlots(
     debug?: SimulationDebug;
   } & BlockOptions,
 ): Promise<AllowanceSlot[]> {
-  const slots = await Promise.all(
-    args.pairs.map((pair) =>
-      discoverAllowanceSlot({
-        client: args.client,
-        token: pair.token,
-        owner: args.from,
-        spender: pair.spender,
-        sentinel: OVERRIDE_TOKEN_AMOUNT,
-        gas: args.gas,
-        debug: args.debug,
-        ...blockOptionsSpread(args),
-      }),
-    ),
-  );
+  const slots = await discoverAllowanceSlotsWithInference({
+    client: args.client,
+    from: args.from,
+    pairs: args.pairs,
+    sentinel: OVERRIDE_TOKEN_AMOUNT,
+    gas: args.gas,
+    debug: args.debug,
+    ...blockOptionsSpread(args),
+  });
   return slots.filter((slot): slot is AllowanceSlot => slot !== undefined);
 }

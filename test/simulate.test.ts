@@ -139,6 +139,34 @@ describe("viem-tx-sim", () => {
     expect(events.some((event) => event.step === "allowanceSlot.currentAllowance")).toBe(false);
   });
 
+  it("infers public allowance slots after one probe", async () => {
+    const events: SimulationDebugEvent[] = [];
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spenderA = await deploy("Spender.sol", "Spender");
+    const spenderB = await deploy("Spender.sol", "Spender");
+
+    const allowanceSlots = await discoverAllowanceSlots({
+      client: ctx.publicClient,
+      from: ctx.account.address,
+      pairs: [
+        { token: token.address, spender: spenderA.address },
+        { token: token.address, spender: spenderB.address },
+      ],
+      debug: (event) => events.push(event),
+    });
+
+    expect(allowanceSlots).toEqual([
+      expect.objectContaining({ token: token.address, spender: spenderA.address }),
+      expect.objectContaining({ token: token.address, spender: spenderB.address }),
+    ]);
+    expect(
+      events.filter(
+        (event) => event.step === "allowanceSlot.accessList" && event.phase === "start",
+      ),
+    ).toHaveLength(1);
+    expect(events.some((event) => event.step === "allowanceSlot.computedVerify")).toBe(true);
+  });
+
   it("discovers nested token dependencies from the access list", async () => {
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const spender = await deploy("StoredTokenSpender.sol", "StoredTokenSpender", [token.address]);
