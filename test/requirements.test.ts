@@ -38,6 +38,11 @@ describe("discoverRequirements", () => {
       spender: vault.address,
       amount: 500n,
     });
+    expect(requirements.unresolved).toEqual({
+      balanceSlots: [],
+      allowanceSlots: [],
+      allowances: [],
+    });
   });
 
   it("attributes one token pulled by two spenders exactly", async () => {
@@ -194,6 +199,10 @@ describe("discoverRequirements", () => {
     expect(
       requirements.allowances.filter((allowance) => allowance.token === token.address),
     ).toEqual([]);
+    expect(requirements.unresolved.allowances).toContainEqual({
+      token: token.address,
+      spender: spender.address,
+    });
   });
 
   it("measures the executed prefix when a batch reverts mid-way", async () => {
@@ -297,6 +306,11 @@ describe("discoverRequirements", () => {
         { token: token.address, spender: spenderB.address, amount: 250n },
       ]),
     );
+    expect(requirements.unresolved).toEqual({
+      balanceSlots: [],
+      allowanceSlots: [],
+      allowances: [],
+    });
   });
 
   it("measures native value requirements", async () => {

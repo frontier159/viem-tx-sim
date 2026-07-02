@@ -88,7 +88,7 @@ describe("error handling", () => {
         from: ctx.account.address,
         tokens: [token.address],
       }),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual({ slots: [], unresolved: [token.address] });
   });
 
   function simulateTrivialCall() {

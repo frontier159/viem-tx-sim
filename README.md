@@ -77,12 +77,12 @@ Slot discovery is explicit and cacheable. Discover the slots you want to forge, 
 ```ts
 import { discoverAllowanceSlots, discoverBalanceSlots, simulate } from "viem-tx-sim";
 
-const balanceSlots = await discoverBalanceSlots({
+const balanceDiscovery = await discoverBalanceSlots({
   client,
   from,
   tokens: [token],
 });
-const allowanceSlots = await discoverAllowanceSlots({
+const allowanceDiscovery = await discoverAllowanceSlots({
   client,
   from,
   pairs: [{ token, spender }],
@@ -92,7 +92,7 @@ const result = await simulate({
   client,
   from,
   calls: [{ to, data }],
-  tokenSlotOverrides: [...balanceSlots, ...allowanceSlots],
+  tokenSlotOverrides: [...balanceDiscovery.slots, ...allowanceDiscovery.slots],
 });
 ```
 
@@ -100,7 +100,7 @@ Balance slots are reusable per token/owner, and allowance slots are reusable per
 
 ## Discovering requirements (optional)
 
-When you don't already know which balances and approvals a transaction needs, `discoverRequirements()` measures them by forging generous state and observing per-call balance and allowance changes. Amounts are estimates measured under forged state and should be padded; pairs whose allowance is set inside the batch (approve or permit) are excluded, and measured allowance decreases are sanity-bounded by the token's gross outflow.
+When you don't already know which balances and approvals a transaction needs, `discoverRequirements()` measures them by forging generous state and observing per-call balance and allowance changes. Amounts are estimates measured under forged state and should be padded; pairs whose allowance is set inside the batch (approve or permit) are excluded, and measured allowance decreases are sanity-bounded by the token's gross outflow. Measurements discarded by that bound are reported under `unresolved.allowances`.
 
 ```ts
 import { discoverRequirements, simulate } from "viem-tx-sim";
@@ -167,7 +167,7 @@ Situations the simulation does not cover, or where the preview can differ from r
 
 **Results are estimates against one block's state.** Deltas and discovered requirements reflect the chosen block; prices, liquidity, and allowances move before the real transaction lands. Pad amounts accordingly. Amounts from `discoverRequirements()` are additionally measured under forged (very large) balances, so contracts that branch on the account's real balance can be measured on the wrong branch.
 
-**Asset coverage is native + `balanceOf(address)`.** Deltas track ETH and anything answering ERC-20-style `balanceOf` (an ERC-721 shows up as a count delta, without token IDs). ERC-1155 balances (`balanceOf(address,uint256)`) are not tracked. Tokens whose balance is computed rather than stored in one slot per holder (rebasing/share-based tokens like stETH) cannot be forged — slot discovery verifies before overriding and omits them.
+**Asset coverage is native + `balanceOf(address)`.** Deltas track ETH and anything answering ERC-20-style `balanceOf` (an ERC-721 shows up as a count delta, without token IDs). ERC-1155 balances (`balanceOf(address,uint256)`) are not tracked. Tokens whose balance is computed rather than stored in one slot per holder (rebasing/share-based tokens like stETH) cannot be forged — slot discovery verifies before overriding and reports them in the `unresolved` list.
 
 **Candidate discovery follows the dry run.** Token candidates come from `eth_createAccessList` on the *unforged* calls; if that dry run reverts early, contracts that would only be touched later are not discovered, and their deltas are missed. Forging (or `discoverRequirements()`, which measures after forging) avoids most of this.
 

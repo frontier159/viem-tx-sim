@@ -65,21 +65,22 @@ mainnetDescribe("mainnet RPC integration", () => {
     });
 
     const blockNumber = mainnetBlockNumber();
-    const balanceSlots = await discoverBalanceSlots({
+    const balanceDiscovery = await discoverBalanceSlots({
       client,
       from: ANVIL_ACCOUNT,
       tokens: [USDC],
       blockNumber,
       debug: (event) => events.push(event),
     });
-    expect(balanceSlots).toHaveLength(1);
+    expect(balanceDiscovery.slots).toHaveLength(1);
+    expect(balanceDiscovery.unresolved).toEqual([]);
 
     const result = await simulate({
       client,
       from: ANVIL_ACCOUNT,
       calls: [{ to: USDC, data }],
       blockNumber,
-      tokenSlotOverrides: balanceSlots,
+      tokenSlotOverrides: balanceDiscovery.slots,
       debug: (event) => events.push(event),
     });
 
@@ -105,7 +106,7 @@ mainnetDescribe("mainnet RPC integration", () => {
       transport: http(MAINNET_RPC_URL),
     });
     const blockNumber = mainnetBlockNumber();
-    const [balanceSlots, allowanceSlots] = await Promise.all([
+    const [balanceDiscovery, allowanceDiscovery] = await Promise.all([
       discoverBalanceSlots({
         client,
         from: ANVIL_ACCOUNT,
@@ -120,8 +121,8 @@ mainnetDescribe("mainnet RPC integration", () => {
       }),
     ]);
 
-    expect(balanceSlots).toEqual(USDS_BALANCE_SLOTS);
-    expect(allowanceSlots).toEqual(USDS_ALLOWANCE_SLOTS);
+    expect(balanceDiscovery).toEqual({ slots: USDS_BALANCE_SLOTS, unresolved: [] });
+    expect(allowanceDiscovery).toEqual({ slots: USDS_ALLOWANCE_SLOTS, unresolved: [] });
   });
 
   it("discovers USDS into sUSDS deposit requirements", async () => {

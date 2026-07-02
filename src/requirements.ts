@@ -4,6 +4,7 @@ import { decodeFunctionData, parseAbi } from "viem";
 import { InvalidSimulationInputError } from "./errors.js";
 import type {
   AllowanceSlot,
+  AllowanceSlotPair,
   BalanceSlot,
   DiscoveredRequirements,
   SimulatedCall,
@@ -29,11 +30,6 @@ const allowanceSettingAbi = parseAbi([
 ]);
 
 type AllowanceProbe = {
-  token: Address;
-  spender: Address;
-};
-
-type AllowancePair = {
   token: Address;
   spender: Address;
 };
@@ -80,7 +76,7 @@ export async function discoverRequirements(
     (address) => addressKey(address) !== addressKey(args.from),
   );
 
-  const balanceSlots = await discoverPublicBalanceSlots({
+  const balanceDiscovery = await discoverPublicBalanceSlots({
     client: args.client,
     from: args.from,
     tokens,
@@ -88,7 +84,7 @@ export async function discoverRequirements(
     debug: args.debug,
     ...blockOptionsSpread(args),
   });
-  const allowanceSlots = await discoverPublicAllowanceSlots({
+  const allowanceDiscovery = await discoverPublicAllowanceSlots({
     client: args.client,
     from: args.from,
     pairs: allowancePairs(tokens, spenders),
@@ -96,6 +92,8 @@ export async function discoverRequirements(
     debug: args.debug,
     ...blockOptionsSpread(args),
   });
+  const balanceSlots = balanceDiscovery.slots;
+  const allowanceSlots = allowanceDiscovery.slots;
   const allowanceProbes = allowanceSlots.map((slot) => ({
     token: slot.token,
     spender: slot.spender,
@@ -112,6 +110,14 @@ export async function discoverRequirements(
     debug: args.debug,
     ...blockOptionsSpread(args),
   });
+  const measuredAllowances = requiredAllowances(
+    args.from,
+    calls,
+    allowanceProbes,
+    measurement.probeData.allowanceCheckpoints,
+    measurement.probeData.candidates,
+    measurement.probeData.maxTokenOutflows,
+  );
 
   const shared = {
     native: measurement.probeData.maxNativeOutflow,
@@ -120,15 +126,13 @@ export async function discoverRequirements(
       tokens,
       measurement.probeData.maxTokenOutflows,
     ),
-    allowances: requiredAllowances(
-      args.from,
-      calls,
-      allowanceProbes,
-      measurement.probeData.allowanceCheckpoints,
-      measurement.probeData.candidates,
-      measurement.probeData.maxTokenOutflows,
-    ),
+    allowances: measuredAllowances.allowances,
     slots: [...balanceSlots, ...allowanceSlots].map(tokenSlotOverride),
+    unresolved: {
+      balanceSlots: balanceDiscovery.unresolved,
+      allowanceSlots: allowanceDiscovery.unresolved,
+      allowances: measuredAllowances.discarded,
+    },
   };
 
   if (measurement.status === "reverted") {
@@ -144,7 +148,10 @@ export async function discoverRequirements(
   return { status: "success", ...shared };
 }
 
-function allowancePairs(tokens: readonly Address[], spenders: readonly Address[]): AllowancePair[] {
+function allowancePairs(
+  tokens: readonly Address[],
+  spenders: readonly Address[],
+): AllowanceSlotPair[] {
   return tokens.flatMap((token) =>
     spenders
       .filter((spender) => addressKey(token) !== addressKey(spender))
@@ -176,8 +183,12 @@ function requiredAllowances(
   checkpoints: readonly bigint[],
   candidates: readonly Address[],
   maxTokenOutflows: readonly bigint[],
-): DiscoveredRequirements["allowances"] {
+): {
+  allowances: DiscoveredRequirements["allowances"];
+  discarded: AllowanceSlotPair[];
+} {
   const allowances: DiscoveredRequirements["allowances"] = [];
+  const discarded: AllowanceSlotPair[] = [];
   const stride = calls.length + 1;
 
   for (let probeIndex = 0; probeIndex < probes.length; ++probeIndex) {
@@ -192,11 +203,14 @@ function requiredAllowances(
       const after = checkpoints[probeIndex * stride + callIndex + 1] ?? 0n;
       if (before > after) amount += before - after;
     }
-    if (amount > tokenOutflow(probe.token, candidates, maxTokenOutflows)) continue;
+    if (amount > tokenOutflow(probe.token, candidates, maxTokenOutflows)) {
+      discarded.push({ token: probe.token, spender: probe.spender });
+      continue;
+    }
     if (amount > 0n) allowances.push({ token: probe.token, spender: probe.spender, amount });
   }
 
-  return allowances;
+  return { allowances, discarded };
 }
 
 function firstInBatchAllowanceSetIndex(

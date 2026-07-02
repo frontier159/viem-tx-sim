@@ -110,15 +110,16 @@ describe("viem-tx-sim", () => {
     const spender = await deploy("Spender.sol", "Spender");
     await write(token, "mint", [ctx.account.address, 1_000n]);
 
-    const allowanceSlots = await discoverAllowanceSlots({
+    const allowanceDiscovery = await discoverAllowanceSlots({
       client: ctx.publicClient,
       from: ctx.account.address,
       pairs: [{ token: token.address, spender: spender.address }],
     });
 
-    expect(allowanceSlots).toContainEqual(
+    expect(allowanceDiscovery.slots).toContainEqual(
       expect.objectContaining({ token: token.address, spender: spender.address }),
     );
+    expect(allowanceDiscovery.unresolved).toEqual([]);
 
     const data = encodeFunctionData({
       abi: spender.abi,
@@ -129,7 +130,7 @@ describe("viem-tx-sim", () => {
       client: ctx.publicClient,
       from: ctx.account.address,
       calls: [{ to: spender.address, data }],
-      tokenSlotOverrides: allowanceSlots,
+      tokenSlotOverrides: allowanceDiscovery.slots,
       debug: (event) => events.push(event),
     });
 
@@ -147,7 +148,7 @@ describe("viem-tx-sim", () => {
     const spenderA = await deploy("Spender.sol", "Spender");
     const spenderB = await deploy("Spender.sol", "Spender");
 
-    const allowanceSlots = await discoverAllowanceSlots({
+    const allowanceDiscovery = await discoverAllowanceSlots({
       client: ctx.publicClient,
       from: ctx.account.address,
       pairs: [
@@ -157,10 +158,11 @@ describe("viem-tx-sim", () => {
       debug: (event) => events.push(event),
     });
 
-    expect(allowanceSlots).toEqual([
+    expect(allowanceDiscovery.slots).toEqual([
       expect.objectContaining({ token: token.address, spender: spenderA.address }),
       expect.objectContaining({ token: token.address, spender: spenderB.address }),
     ]);
+    expect(allowanceDiscovery.unresolved).toEqual([]);
     expect(
       events.filter(
         (event) => event.step === "allowanceSlot.accessList" && event.phase === "start",
@@ -193,13 +195,16 @@ describe("viem-tx-sim", () => {
   it("uses caller-supplied balance storage overrides for view-only token balances", async () => {
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const spender = await deploy("Spender.sol", "Spender");
-    const balanceSlots = await discoverBalanceSlots({
+    const balanceDiscovery = await discoverBalanceSlots({
       client: ctx.publicClient,
       from: ctx.account.address,
       tokens: [token.address],
     });
 
-    expect(balanceSlots).toContainEqual(expect.objectContaining({ token: token.address }));
+    expect(balanceDiscovery.slots).toContainEqual(
+      expect.objectContaining({ token: token.address }),
+    );
+    expect(balanceDiscovery.unresolved).toEqual([]);
 
     const approve = encodeFunctionData({
       abi: token.abi,
@@ -218,11 +223,23 @@ describe("viem-tx-sim", () => {
         { to: token.address, data: approve },
         { to: spender.address, data: pull },
       ],
-      tokenSlotOverrides: balanceSlots,
+      tokenSlotOverrides: balanceDiscovery.slots,
     });
 
     expect(result.status).toBe("success");
     expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -500n });
+  });
+
+  it("reports unresolved balance slots", async () => {
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const discovery = await discoverBalanceSlots({
+      client: ctx.publicClient,
+      from: ctx.account.address,
+      tokens: [token.address, ctx.secondAccount.address],
+    });
+
+    expect(discovery.slots).toEqual([expect.objectContaining({ token: token.address })]);
+    expect(discovery.unresolved).toEqual([ctx.secondAccount.address]);
   });
 
   it("keeps batch state changes visible between calls", async () => {
@@ -307,12 +324,15 @@ describe("viem-tx-sim", () => {
     };
     const spender = await deploy("Spender.sol", "Spender");
 
-    const balanceSlots = await discoverBalanceSlots({
+    const balanceDiscovery = await discoverBalanceSlots({
       client: ctx.publicClient,
       from: ctx.account.address,
       tokens: [proxyToken.address],
     });
-    expect(balanceSlots).toContainEqual(expect.objectContaining({ token: proxyToken.address }));
+    expect(balanceDiscovery.slots).toContainEqual(
+      expect.objectContaining({ token: proxyToken.address }),
+    );
+    expect(balanceDiscovery.unresolved).toEqual([]);
 
     const approve = encodeFunctionData({
       abi: proxyToken.abi,
@@ -331,7 +351,7 @@ describe("viem-tx-sim", () => {
         { to: proxyToken.address, data: approve },
         { to: spender.address, data: pull },
       ],
-      tokenSlotOverrides: balanceSlots,
+      tokenSlotOverrides: balanceDiscovery.slots,
     });
 
     expect(result.status).toBe("success");
@@ -341,12 +361,12 @@ describe("viem-tx-sim", () => {
   it("combines balance and allowance overrides", async () => {
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const spender = await deploy("Spender.sol", "Spender");
-    const balanceSlots = await discoverBalanceSlots({
+    const balanceDiscovery = await discoverBalanceSlots({
       client: ctx.publicClient,
       from: ctx.account.address,
       tokens: [token.address],
     });
-    const allowanceSlots = await discoverAllowanceSlots({
+    const allowanceDiscovery = await discoverAllowanceSlots({
       client: ctx.publicClient,
       from: ctx.account.address,
       pairs: [{ token: token.address, spender: spender.address }],
@@ -361,7 +381,7 @@ describe("viem-tx-sim", () => {
       client: ctx.publicClient,
       from: ctx.account.address,
       calls: [{ to: spender.address, data }],
-      tokenSlotOverrides: [...balanceSlots, ...allowanceSlots],
+      tokenSlotOverrides: [...balanceDiscovery.slots, ...allowanceDiscovery.slots],
     });
 
     expect(result.status).toBe("success");

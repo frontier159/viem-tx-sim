@@ -9,8 +9,11 @@ export {
 } from "./errors.js";
 export type {
   AllowanceSlot,
+  AllowanceSlotDiscovery,
+  AllowanceSlotPair,
   AssetBalanceDelta,
   BalanceSlot,
+  BalanceSlotDiscovery,
   DiscoveredRequirements,
   DiscoveredRequirementsReverted,
   DiscoveredRequirementsSuccess,

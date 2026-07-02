@@ -29,6 +29,23 @@ export type AllowanceSlot = {
   slot: Hex;
 };
 
+export type AllowanceSlotPair = {
+  token: Address;
+  spender: Address;
+};
+
+export type BalanceSlotDiscovery = {
+  slots: BalanceSlot[];
+  /** Tokens whose balance slot could not be found and sentinel-verified. */
+  unresolved: Address[];
+};
+
+export type AllowanceSlotDiscovery = {
+  slots: AllowanceSlot[];
+  /** Pairs whose allowance slot could not be found and sentinel-verified. */
+  unresolved: AllowanceSlotPair[];
+};
+
 export type TokenSlotOverride = {
   token: Address;
   slot: Hex;
@@ -66,6 +83,13 @@ type DiscoveredRequirementsBase = {
   allowances: RequiredAllowance[];
   /** Verified slots discovered along the way - pass to simulate() as tokenSlotOverrides. */
   slots: TokenSlotOverride[];
+  unresolved: {
+    /** Tokens/pairs discovery could not verify - their state was NOT forged. */
+    balanceSlots: Address[];
+    allowanceSlots: AllowanceSlotPair[];
+    /** Pairs measured but discarded as unreliable. */
+    allowances: AllowanceSlotPair[];
+  };
 };
 
 export type DiscoveredRequirementsSuccess = DiscoveredRequirementsBase & {

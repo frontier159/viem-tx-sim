@@ -1,13 +1,19 @@
 import type { Address, PublicClient } from "viem";
 
-import type { AllowanceSlot, BalanceSlot, SimulationDebug } from "./types.js";
+import type {
+  AllowanceSlot,
+  AllowanceSlotDiscovery,
+  BalanceSlot,
+  BalanceSlotDiscovery,
+  SimulationDebug,
+} from "./types.js";
 import { discoverAllowanceSlotsWithInference } from "./internal/allowanceDiscovery.js";
 import { OVERRIDE_TOKEN_AMOUNT } from "./internal/hex.js";
 import { discoverBalanceSlot } from "./internal/probes.js";
 import type { BlockOptions } from "./internal/rpc.js";
 import { blockOptionsSpread } from "./internal/rpc.js";
 
-/** Discovers balance storage slots and omits tokens whose slot cannot be verified. */
+/** Discovers balance storage slots and reports tokens whose slot cannot be verified. */
 export async function discoverBalanceSlots(
   args: {
     client: PublicClient;
@@ -16,7 +22,7 @@ export async function discoverBalanceSlots(
     gas?: bigint;
     debug?: SimulationDebug;
   } & BlockOptions,
-): Promise<BalanceSlot[]> {
+): Promise<BalanceSlotDiscovery> {
   const slots = await Promise.all(
     args.tokens.map((token) =>
       discoverBalanceSlot({
@@ -30,10 +36,13 @@ export async function discoverBalanceSlots(
       }),
     ),
   );
-  return slots.filter((slot): slot is BalanceSlot => slot !== undefined);
+  return {
+    slots: slots.filter((slot): slot is BalanceSlot => slot !== undefined),
+    unresolved: args.tokens.filter((_, index) => slots[index] === undefined),
+  };
 }
 
-/** Discovers allowance storage slots and omits pairs whose slot cannot be verified. */
+/** Discovers allowance storage slots and reports pairs whose slot cannot be verified. */
 export async function discoverAllowanceSlots(
   args: {
     client: PublicClient;
@@ -45,7 +54,7 @@ export async function discoverAllowanceSlots(
     gas?: bigint;
     debug?: SimulationDebug;
   } & BlockOptions,
-): Promise<AllowanceSlot[]> {
+): Promise<AllowanceSlotDiscovery> {
   const slots = await discoverAllowanceSlotsWithInference({
     client: args.client,
     from: args.from,
@@ -55,5 +64,8 @@ export async function discoverAllowanceSlots(
     debug: args.debug,
     ...blockOptionsSpread(args),
   });
-  return slots.filter((slot): slot is AllowanceSlot => slot !== undefined);
+  return {
+    slots: slots.filter((slot): slot is AllowanceSlot => slot !== undefined),
+    unresolved: args.pairs.filter((_, index) => slots[index] === undefined),
+  };
 }
