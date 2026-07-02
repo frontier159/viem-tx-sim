@@ -1,6 +1,4 @@
-export { discoverRequirements } from "./requirements.js";
-export { simulate } from "./simulate.js";
-export { discoverAllowanceSlots, discoverBalanceSlots } from "./slots.js";
+export { TxSimulator } from "./txSimulator.js";
 export {
   AccessListUnsupportedError,
   InvalidSimulationInputError,

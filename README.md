@@ -25,18 +25,18 @@ Simulate depositing 1,000 USDS into the sUSDS ERC-4626 vault on mainnet — an a
 ```ts
 import { createPublicClient, encodeFunctionData, http, parseAbi, parseUnits } from "viem";
 import { mainnet } from "viem/chains";
-import { simulate } from "viem-tx-sim";
+import { TxSimulator } from "viem-tx-sim";
 
 const USDS = "0xdC035D45d973E3EC169d2276DDab16f1e407384F";
 const SUSDS = "0xa3931d71877C0E7a3148CB7Eb4463524FEc27fbD";
 
 const client = createPublicClient({ chain: mainnet, transport: http(RPC_URL) });
+const sim = TxSimulator.create({ client });
 
 const user = "0xYourAddress"; // no key or signing involved — any address can be simulated
 const assets = parseUnits("1000", 18);
 
-const result = await simulate({
-  client,
+const result = await sim.simulate({
   from: user,
   calls: [
     {
@@ -68,28 +68,26 @@ console.log(result.assetBalanceDeltas);
 
 Deltas are raw `bigint` amounts in each token's own units, discovered from chain state alone. A revert is returned as `status: "reverted"`, never thrown; checking `status` gives typed access to `revertData` and `failingCallIndex`.
 
-`simulate()` runs against the account's real balances and does not retry or forge state by itself. If `user` doesn't actually hold 1,000 USDS (say you're previewing for a view-only address), forge the balance explicitly with a slot override — see the next section.
+`sim.simulate()` runs against the account's real balances and does not retry or forge state by itself. If `user` doesn't actually hold 1,000 USDS (say you're previewing for a view-only address), forge the balance explicitly with a slot override — see the next section.
 
 ## Forging balances and allowances
 
 Slot discovery is explicit and cacheable. Discover the slots you want to forge, then pass them into a single simulation run:
 
 ```ts
-import { discoverAllowanceSlots, discoverBalanceSlots, simulate } from "viem-tx-sim";
+import { TxSimulator } from "viem-tx-sim";
 
-const balanceDiscovery = await discoverBalanceSlots({
-  client,
+const sim = TxSimulator.create({ client });
+const balanceDiscovery = await sim.discoverBalanceSlots({
   from,
   tokens: [token],
 });
-const allowanceDiscovery = await discoverAllowanceSlots({
-  client,
+const allowanceDiscovery = await sim.discoverAllowanceSlots({
   from,
   pairs: [{ token, spender }],
 });
 
-const result = await simulate({
-  client,
+const result = await sim.simulate({
   from,
   calls: [{ to, data }],
   tokenSlotOverrides: [...balanceDiscovery.slots, ...allowanceDiscovery.slots],
@@ -100,18 +98,18 @@ Balance slots are reusable per token/owner, and allowance slots are reusable per
 
 ## Discovering requirements (optional)
 
-When you don't already know which balances and approvals a transaction needs, `discoverRequirements()` measures them by forging generous state and observing per-call balance and allowance changes. Amounts are estimates measured under forged state and should be padded; pairs whose allowance is set inside the batch (approve or permit) are excluded, and measured allowance decreases are sanity-bounded by the token's gross outflow. Measurements discarded by that bound are reported under `unresolved.allowances`.
+When you don't already know which balances and approvals a transaction needs, `sim.discoverRequirements()` measures them by forging generous state and observing per-call balance and allowance changes. Amounts are estimates measured under forged state and should be padded; pairs whose allowance is set inside the batch (approve or permit) are excluded, and measured allowance decreases are sanity-bounded by the token's gross outflow. Measurements discarded by that bound are reported under `unresolved.allowances`.
 
 ```ts
-import { discoverRequirements, simulate } from "viem-tx-sim";
+import { TxSimulator } from "viem-tx-sim";
 
-const requirements = await discoverRequirements({ client, from, calls });
+const sim = TxSimulator.create({ client });
+const requirements = await sim.discoverRequirements({ from, calls });
 // requirements.allowances -> [{ token, spender, amount }]
 // requirements.balances   -> [{ token, amount }]
-// requirements.slots      -> feed to simulate({ ..., tokenSlotOverrides })
+// requirements.slots      -> feed to sim.simulate({ ..., tokenSlotOverrides })
 
-const result = await simulate({
-  client,
+const result = await sim.simulate({
   from,
   calls,
   tokenSlotOverrides: requirements.slots,
@@ -123,10 +121,10 @@ const result = await simulate({
 Enable logging per simulation call:
 
 ```ts
-import { simulate } from "viem-tx-sim";
+import { TxSimulator } from "viem-tx-sim";
 
-const result = await simulate({
-  client,
+const sim = TxSimulator.create({ client });
+const result = await sim.simulate({
   from,
   calls: [{ to, data, value: 0n }],
   debug: true,
@@ -136,8 +134,7 @@ const result = await simulate({
 Or pass a callback to collect structured events:
 
 ```ts
-await simulate({
-  client,
+await sim.simulate({
   from,
   calls: [{ to, data }],
   debug: (event) => {
@@ -165,7 +162,7 @@ Situations the simulation does not cover, or where the preview can differ from r
 
 **An adversarial contract can detect it is being simulated** — via the code at `from`, the recognizable forged balances, or `eth_call` context — and behave differently in the real transaction. This is inherent to state-override simulation (centralized simulation APIs share it). Treat the preview as best-effort insight, not a security guarantee against malicious contracts.
 
-**Results are estimates against one block's state.** Deltas and discovered requirements reflect the chosen block; prices, liquidity, and allowances move before the real transaction lands. Pad amounts accordingly. Amounts from `discoverRequirements()` are additionally measured under forged (very large) balances, so contracts that branch on the account's real balance can be measured on the wrong branch.
+**Results are estimates against one block's state.** Deltas and discovered requirements reflect the chosen block; prices, liquidity, and allowances move before the real transaction lands. Pad amounts accordingly. Amounts from `sim.discoverRequirements()` are additionally measured under forged (very large) balances, so contracts that branch on the account's real balance can be measured on the wrong branch.
 
 **Asset coverage is native + `balanceOf(address)`.** Deltas track ETH and anything answering ERC-20-style `balanceOf` (an ERC-721 shows up as a count delta, without token IDs). ERC-1155 balances (`balanceOf(address,uint256)`) are not tracked. Tokens whose balance is computed rather than stored in one slot per holder (rebasing/share-based tokens like stETH) cannot be forged — slot discovery verifies before overriding and reports them in the `unresolved` list.
 

@@ -9,21 +9,17 @@ import {
   type Hex,
 } from "viem";
 
-import {
-  discoverAllowanceSlots,
-  discoverBalanceSlots,
-  simulate,
-  type SimulationResult,
-  type SimulationDebugEvent,
-} from "../src/index.js";
+import { TxSimulator, type SimulationResult, type SimulationDebugEvent } from "../src/index.js";
 import { artifact } from "./helpers/artifacts.js";
 import { type AnvilTestContext, startAnvil } from "./helpers/anvil.js";
 
 describe("viem-tx-sim", () => {
   let ctx: AnvilTestContext;
+  let sim: TxSimulator;
 
   beforeEach(async () => {
     ctx = await startAnvil();
+    sim = TxSimulator.create({ client: ctx.publicClient });
   });
 
   afterEach(() => {
@@ -31,8 +27,7 @@ describe("viem-tx-sim", () => {
   });
 
   it("reports native value deltas", async () => {
-    const result = await simulate({
-      client: ctx.publicClient,
+    const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: ctx.secondAccount.address, data: "0x", value: parseEther("1") }],
     });
@@ -43,8 +38,7 @@ describe("viem-tx-sim", () => {
 
   it("emits debug events for simulator RPC calls", async () => {
     const events: SimulationDebugEvent[] = [];
-    const result = await simulate({
-      client: ctx.publicClient,
+    const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: ctx.secondAccount.address, data: "0x", value: parseEther("1") }],
       debug: (event) => events.push(event),
@@ -76,8 +70,7 @@ describe("viem-tx-sim", () => {
       functionName: "transfer",
       args: [ctx.secondAccount.address, 250n],
     });
-    const result = await simulate({
-      client: ctx.publicClient,
+    const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: token.address, data }],
     });
@@ -94,8 +87,7 @@ describe("viem-tx-sim", () => {
       args: [ctx.account.address, 1n],
     });
 
-    const result = await simulate({
-      client: ctx.publicClient,
+    const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: nft.address, data }],
     });
@@ -110,8 +102,7 @@ describe("viem-tx-sim", () => {
     const spender = await deploy("Spender.sol", "Spender");
     await write(token, "mint", [ctx.account.address, 1_000n]);
 
-    const allowanceDiscovery = await discoverAllowanceSlots({
-      client: ctx.publicClient,
+    const allowanceDiscovery = await sim.discoverAllowanceSlots({
       from: ctx.account.address,
       pairs: [{ token: token.address, spender: spender.address }],
     });
@@ -126,8 +117,7 @@ describe("viem-tx-sim", () => {
       functionName: "pull",
       args: [token.address, 321n],
     });
-    const result = await simulate({
-      client: ctx.publicClient,
+    const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: spender.address, data }],
       tokenSlotOverrides: allowanceDiscovery.slots,
@@ -148,8 +138,7 @@ describe("viem-tx-sim", () => {
     const spenderA = await deploy("Spender.sol", "Spender");
     const spenderB = await deploy("Spender.sol", "Spender");
 
-    const allowanceDiscovery = await discoverAllowanceSlots({
-      client: ctx.publicClient,
+    const allowanceDiscovery = await sim.discoverAllowanceSlots({
       from: ctx.account.address,
       pairs: [
         { token: token.address, spender: spenderA.address },
@@ -182,8 +171,7 @@ describe("viem-tx-sim", () => {
       functionName: "pull",
       args: [123n],
     });
-    const result = await simulate({
-      client: ctx.publicClient,
+    const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: spender.address, data }],
     });
@@ -195,8 +183,7 @@ describe("viem-tx-sim", () => {
   it("uses caller-supplied balance storage overrides for view-only token balances", async () => {
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const spender = await deploy("Spender.sol", "Spender");
-    const balanceDiscovery = await discoverBalanceSlots({
-      client: ctx.publicClient,
+    const balanceDiscovery = await sim.discoverBalanceSlots({
       from: ctx.account.address,
       tokens: [token.address],
     });
@@ -216,8 +203,7 @@ describe("viem-tx-sim", () => {
       functionName: "pull",
       args: [token.address, 500n],
     });
-    const result = await simulate({
-      client: ctx.publicClient,
+    const result = await sim.simulate({
       from: ctx.account.address,
       calls: [
         { to: token.address, data: approve },
@@ -232,8 +218,7 @@ describe("viem-tx-sim", () => {
 
   it("reports unresolved balance slots", async () => {
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const discovery = await discoverBalanceSlots({
-      client: ctx.publicClient,
+    const discovery = await sim.discoverBalanceSlots({
       from: ctx.account.address,
       tokens: [token.address, ctx.secondAccount.address],
     });
@@ -257,8 +242,7 @@ describe("viem-tx-sim", () => {
       functionName: "pull",
       args: [token.address, 400n],
     });
-    const result = await simulate({
-      client: ctx.publicClient,
+    const result = await sim.simulate({
       from: ctx.account.address,
       calls: [
         { to: token.address, data: approve },
@@ -287,8 +271,7 @@ describe("viem-tx-sim", () => {
       functionName: "pullWithSignature",
       args: [token.address, 123n, hash, signature],
     });
-    const result = await simulate({
-      client: ctx.publicClient,
+    const result = await sim.simulate({
       from: ctx.account.address,
       calls: [
         { to: token.address, data: approve },
@@ -324,8 +307,7 @@ describe("viem-tx-sim", () => {
     };
     const spender = await deploy("Spender.sol", "Spender");
 
-    const balanceDiscovery = await discoverBalanceSlots({
-      client: ctx.publicClient,
+    const balanceDiscovery = await sim.discoverBalanceSlots({
       from: ctx.account.address,
       tokens: [proxyToken.address],
     });
@@ -344,8 +326,7 @@ describe("viem-tx-sim", () => {
       functionName: "pull",
       args: [proxyToken.address, 77n],
     });
-    const result = await simulate({
-      client: ctx.publicClient,
+    const result = await sim.simulate({
       from: ctx.account.address,
       calls: [
         { to: proxyToken.address, data: approve },
@@ -361,13 +342,11 @@ describe("viem-tx-sim", () => {
   it("combines balance and allowance overrides", async () => {
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const spender = await deploy("Spender.sol", "Spender");
-    const balanceDiscovery = await discoverBalanceSlots({
-      client: ctx.publicClient,
+    const balanceDiscovery = await sim.discoverBalanceSlots({
       from: ctx.account.address,
       tokens: [token.address],
     });
-    const allowanceDiscovery = await discoverAllowanceSlots({
-      client: ctx.publicClient,
+    const allowanceDiscovery = await sim.discoverAllowanceSlots({
       from: ctx.account.address,
       pairs: [{ token: token.address, spender: spender.address }],
     });
@@ -377,8 +356,7 @@ describe("viem-tx-sim", () => {
       functionName: "pull",
       args: [token.address, 200n],
     });
-    const result = await simulate({
-      client: ctx.publicClient,
+    const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: spender.address, data }],
       tokenSlotOverrides: [...balanceDiscovery.slots, ...allowanceDiscovery.slots],
@@ -390,8 +368,7 @@ describe("viem-tx-sim", () => {
 
   it("returns unresolved transaction reverts instead of throwing", async () => {
     const target = await deploy("RevertingTarget.sol", "RevertingTarget");
-    const result = await simulate({
-      client: ctx.publicClient,
+    const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: target.address, data: "0x12345678" }],
     });

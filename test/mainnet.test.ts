@@ -11,10 +11,7 @@ import {
 import { mainnet } from "viem/chains";
 
 import {
-  discoverAllowanceSlots,
-  discoverBalanceSlots,
-  discoverRequirements,
-  simulate,
+  TxSimulator,
   type AllowanceSlot,
   type BalanceSlot,
   type SimulationDebugEvent,
@@ -58,6 +55,7 @@ mainnetDescribe("mainnet RPC integration", () => {
       chain: mainnet,
       transport: http(MAINNET_RPC_URL),
     });
+    const sim = TxSimulator.create({ client });
     const data = encodeFunctionData({
       abi: erc20Abi,
       functionName: "transfer",
@@ -65,8 +63,7 @@ mainnetDescribe("mainnet RPC integration", () => {
     });
 
     const blockNumber = mainnetBlockNumber();
-    const balanceDiscovery = await discoverBalanceSlots({
-      client,
+    const balanceDiscovery = await sim.discoverBalanceSlots({
       from: ANVIL_ACCOUNT,
       tokens: [USDC],
       blockNumber,
@@ -75,8 +72,7 @@ mainnetDescribe("mainnet RPC integration", () => {
     expect(balanceDiscovery.slots).toHaveLength(1);
     expect(balanceDiscovery.unresolved).toEqual([]);
 
-    const result = await simulate({
-      client,
+    const result = await sim.simulate({
       from: ANVIL_ACCOUNT,
       calls: [{ to: USDC, data }],
       blockNumber,
@@ -105,16 +101,15 @@ mainnetDescribe("mainnet RPC integration", () => {
       chain: mainnet,
       transport: http(MAINNET_RPC_URL),
     });
+    const sim = TxSimulator.create({ client });
     const blockNumber = mainnetBlockNumber();
     const [balanceDiscovery, allowanceDiscovery] = await Promise.all([
-      discoverBalanceSlots({
-        client,
+      sim.discoverBalanceSlots({
         from: ANVIL_ACCOUNT,
         tokens: [USDS],
         blockNumber,
       }),
-      discoverAllowanceSlots({
-        client,
+      sim.discoverAllowanceSlots({
         from: ANVIL_ACCOUNT,
         pairs: [{ token: USDS, spender: SUSDS }],
         blockNumber,
@@ -132,8 +127,8 @@ mainnetDescribe("mainnet RPC integration", () => {
       chain: mainnet,
       transport: http(MAINNET_RPC_URL),
     });
-    const requirements = await discoverRequirements({
-      client,
+    const sim = TxSimulator.create({ client });
+    const requirements = await sim.discoverRequirements({
       from: ANVIL_ACCOUNT,
       calls: [{ to: SUSDS, data: usdsDepositCalldata() }],
       blockNumber: mainnetBlockNumber(),
@@ -156,8 +151,8 @@ mainnetDescribe("mainnet RPC integration", () => {
       chain: mainnet,
       transport: http(MAINNET_RPC_URL),
     });
-    const result = await simulate({
-      client,
+    const sim = TxSimulator.create({ client });
+    const result = await sim.simulate({
       from: ANVIL_ACCOUNT,
       calls: [{ to: SUSDS, data: usdsDepositCalldata() }],
       blockNumber: mainnetBlockNumber(),

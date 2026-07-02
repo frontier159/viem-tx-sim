@@ -3,11 +3,9 @@ import { getAddress, type Abi, type Address, type CallParameters } from "viem";
 
 import {
   AccessListUnsupportedError,
-  discoverBalanceSlots,
-  discoverRequirements,
   InvalidSimulationInputError,
-  simulate,
   StateOverrideUnsupportedError,
+  TxSimulator,
 } from "../src/index.js";
 import { artifact } from "./helpers/artifacts.js";
 import { type AnvilTestContext, startAnvil } from "./helpers/anvil.js";
@@ -21,9 +19,11 @@ type CallDelegate = (parameters: CallParameters) => Promise<unknown>;
 
 describe("error handling", () => {
   let ctx: AnvilTestContext;
+  let sim: TxSimulator;
 
   beforeEach(async () => {
     ctx = await startAnvil();
+    sim = TxSimulator.create({ client: ctx.publicClient });
   });
 
   afterEach(() => {
@@ -31,12 +31,12 @@ describe("error handling", () => {
   });
 
   it("rejects empty call batches with a typed input error", async () => {
-    await expect(
-      simulate({ client: ctx.publicClient, from: ctx.account.address, calls: [] }),
-    ).rejects.toBeInstanceOf(InvalidSimulationInputError);
+    await expect(sim.simulate({ from: ctx.account.address, calls: [] })).rejects.toBeInstanceOf(
+      InvalidSimulationInputError,
+    );
 
     await expect(
-      discoverRequirements({ client: ctx.publicClient, from: ctx.account.address, calls: [] }),
+      sim.discoverRequirements({ from: ctx.account.address, calls: [] }),
     ).rejects.toBeInstanceOf(InvalidSimulationInputError);
   });
 
@@ -83,8 +83,7 @@ describe("error handling", () => {
     });
 
     await expect(
-      discoverBalanceSlots({
-        client: ctx.publicClient,
+      sim.discoverBalanceSlots({
         from: ctx.account.address,
         tokens: [token.address],
       }),
@@ -92,8 +91,7 @@ describe("error handling", () => {
   });
 
   function simulateTrivialCall() {
-    return simulate({
-      client: ctx.publicClient,
+    return sim.simulate({
       from: ctx.account.address,
       calls: [{ to: ctx.secondAccount.address, data: "0x" }],
     });
