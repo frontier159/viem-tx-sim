@@ -1,4 +1,4 @@
-import type { Address, CallParameters, Hex, PublicClient, StateOverride } from "viem";
+import type { Address, Hex, PublicClient, StateOverride } from "viem";
 import { encodeFunctionData, erc20Abi } from "viem";
 
 import type { AllowanceSlot, BalanceSlot, SimulationDebug } from "../types.js";
@@ -6,9 +6,9 @@ import { addressKey } from "./address.js";
 import { withRpcDebug } from "./debug.js";
 import { getCallData, uint256Hex } from "./hex.js";
 import type { BlockOptions } from "./rpc.js";
-import { createAccessList } from "./rpc.js";
+import { blockOptionsSpread, buildCallParameters, createAccessList } from "./rpc.js";
 
-export async function readBalanceOf(
+async function readBalanceOf(
   args: {
     client: PublicClient;
     token: Address;
@@ -34,8 +34,7 @@ export async function readBalanceOf(
     gas: args.gas,
     debug: args.debug,
     debugStep: args.debugStep ?? "erc20.balanceOf",
-    blockNumber: args.blockNumber,
-    blockTag: args.blockTag,
+    ...blockOptionsSpread(args),
   });
 }
 
@@ -66,8 +65,7 @@ export async function readAllowance(
     gas: args.gas,
     debug: args.debug,
     debugStep: args.debugStep ?? "erc20.allowance",
-    blockNumber: args.blockNumber,
-    blockTag: args.blockTag,
+    ...blockOptionsSpread(args),
   });
 }
 
@@ -97,8 +95,7 @@ export async function discoverBalanceSlot(
       gas: args.gas,
       debug: args.debug,
       debugStep: "balanceSlot.accessList",
-      blockNumber: args.blockNumber,
-      blockTag: args.blockTag,
+      ...blockOptionsSpread(args),
     });
     storageKeys = accessList
       .filter((entry) => addressKey(entry.address) === addressKey(args.token))
@@ -117,8 +114,7 @@ export async function discoverBalanceSlot(
       gas: args.gas,
       debug: args.debug,
       debugStep: "balanceSlot.verify",
-      blockNumber: args.blockNumber,
-      blockTag: args.blockTag,
+      ...blockOptionsSpread(args),
     });
     if (balance === args.sentinel) return { token: args.token, slot };
   }
@@ -153,8 +149,7 @@ export async function discoverAllowanceSlot(
       gas: args.gas,
       debug: args.debug,
       debugStep: "allowanceSlot.accessList",
-      blockNumber: args.blockNumber,
-      blockTag: args.blockTag,
+      ...blockOptionsSpread(args),
     });
     storageKeys = accessList
       .filter((entry) => addressKey(entry.address) === addressKey(args.token))
@@ -174,8 +169,7 @@ export async function discoverAllowanceSlot(
       gas: args.gas,
       debug: args.debug,
       debugStep: "allowanceSlot.verify",
-      blockNumber: args.blockNumber,
-      blockTag: args.blockTag,
+      ...blockOptionsSpread(args),
     });
     if (allowance === args.sentinel) {
       return {
@@ -221,8 +215,7 @@ async function readUint256Call(
             data: args.data,
             stateOverride: args.stateOverride,
             gas: args.gas,
-            blockNumber: args.blockNumber,
-            blockTag: args.blockTag,
+            ...blockOptionsSpread(args),
           }),
         ),
     );
@@ -232,27 +225,4 @@ async function readUint256Call(
   } catch {
     return undefined;
   }
-}
-
-function buildCallParameters(
-  args: {
-    account: Address;
-    to: Address;
-    data: Hex;
-    stateOverride?: StateOverride;
-    gas?: bigint;
-  } & BlockOptions,
-): CallParameters {
-  const base = {
-    account: args.account,
-    to: args.to,
-    data: args.data,
-    ...(args.stateOverride !== undefined ? { stateOverride: args.stateOverride } : {}),
-    ...(args.gas !== undefined ? { gas: args.gas } : {}),
-  };
-  return (
-    args.blockNumber !== undefined
-      ? { ...base, blockNumber: args.blockNumber }
-      : { ...base, ...(args.blockTag !== undefined ? { blockTag: args.blockTag } : {}) }
-  ) satisfies CallParameters;
 }

@@ -4,6 +4,7 @@ import type { AllowanceSlot, BalanceSlot, SimulationDebug } from "./types.js";
 import { OVERRIDE_TOKEN_AMOUNT } from "./internal/hex.js";
 import { discoverAllowanceSlot, discoverBalanceSlot } from "./internal/probes.js";
 import type { BlockOptions } from "./internal/rpc.js";
+import { blockOptionsSpread } from "./internal/rpc.js";
 
 /** Discovers balance storage slots and omits tokens whose slot cannot be verified. */
 export async function discoverBalanceSlots(
@@ -25,8 +26,7 @@ export async function discoverBalanceSlots(
       sentinel: OVERRIDE_TOKEN_AMOUNT,
       gas: args.gas,
       debug: args.debug,
-      ...(args.blockNumber !== undefined ? { blockNumber: args.blockNumber } : {}),
-      ...(args.blockTag !== undefined ? { blockTag: args.blockTag } : {}),
+      ...blockOptionsSpread(args),
     });
     if (slot !== undefined) slots.push(slot);
   }
@@ -58,8 +58,7 @@ export async function discoverAllowanceSlots(
       sentinel: OVERRIDE_TOKEN_AMOUNT,
       gas: args.gas,
       debug: args.debug,
-      ...(args.blockNumber !== undefined ? { blockNumber: args.blockNumber } : {}),
-      ...(args.blockTag !== undefined ? { blockTag: args.blockTag } : {}),
+      ...blockOptionsSpread(args),
     });
     if (slot !== undefined) slots.push(slot);
   }

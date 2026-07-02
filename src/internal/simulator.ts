@@ -1,4 +1,4 @@
-import type { Address, CallParameters, Hex, PublicClient, StateOverride } from "viem";
+import type { Address, Hex, PublicClient } from "viem";
 import { decodeFunctionResult, encodeFunctionData, parseAbi } from "viem";
 
 import type { AssetBalanceDelta, SimulatedCall, SimulationResult } from "../types.js";
@@ -9,7 +9,7 @@ import { withRpcDebug } from "./debug.js";
 import { getCallData } from "./hex.js";
 import { decodeRevertReason } from "./revert.js";
 import type { BlockOptions } from "./rpc.js";
-import { formatRpcError } from "./rpc.js";
+import { blockOptionsSpread, buildCallParameters, formatRpcError } from "./rpc.js";
 import {
   buildStateOverride,
   storageOverridesToStateDiff,
@@ -17,7 +17,7 @@ import {
   type StorageOverride,
 } from "./stateOverride.js";
 
-export type ProbeData = {
+type ProbeData = {
   observedTokens: Address[];
   candidates: Address[];
   maxTokenOutflows: bigint[];
@@ -95,8 +95,7 @@ export async function runSimulator(
             data,
             gas: args.gas,
             stateOverride,
-            blockNumber: args.blockNumber,
-            blockTag: args.blockTag,
+            ...blockOptionsSpread(args),
           }),
         ),
     );
@@ -165,27 +164,4 @@ export async function runSimulator(
       allowanceCheckpoints: result.allowanceCheckpoints,
     },
   };
-}
-
-function buildCallParameters(
-  args: {
-    account: Address;
-    to: Address;
-    data: Hex;
-    gas?: bigint;
-    stateOverride: StateOverride;
-  } & BlockOptions,
-): CallParameters {
-  const base = {
-    account: args.account,
-    to: args.to,
-    data: args.data,
-    ...(args.gas !== undefined ? { gas: args.gas } : {}),
-    stateOverride: args.stateOverride,
-  };
-  return (
-    args.blockNumber !== undefined
-      ? { ...base, blockNumber: args.blockNumber }
-      : { ...base, ...(args.blockTag !== undefined ? { blockTag: args.blockTag } : {}) }
-  ) satisfies CallParameters;
 }

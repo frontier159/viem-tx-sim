@@ -4,7 +4,7 @@ import type { SimulationDebug } from "../types.js";
 import type { SimulatedCall } from "../types.js";
 import { uniqueAddresses } from "./address.js";
 import type { BlockOptions } from "./rpc.js";
-import { createAccessList } from "./rpc.js";
+import { blockOptionsSpread, createAccessList } from "./rpc.js";
 
 export async function discoverCandidateAddresses(
   args: {
@@ -28,8 +28,7 @@ export async function discoverCandidateAddresses(
       gas: args.gas,
       debug: args.debug,
       debugStep: "candidateDiscovery.accessList",
-      blockNumber: args.blockNumber,
-      blockTag: args.blockTag,
+      ...blockOptionsSpread(args),
     });
     for (const entry of accessList) candidates.push(entry.address);
   }

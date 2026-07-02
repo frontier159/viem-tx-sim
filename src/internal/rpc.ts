@@ -1,4 +1,12 @@
-import type { AccessList, Address, BlockTag, Hex, PublicClient } from "viem";
+import type {
+  AccessList,
+  Address,
+  BlockTag,
+  CallParameters,
+  Hex,
+  PublicClient,
+  StateOverride,
+} from "viem";
 import { numberToHex } from "viem";
 
 import { AccessListUnsupportedError } from "../errors.js";
@@ -9,6 +17,37 @@ export type BlockOptions = {
   blockNumber?: bigint;
   blockTag?: BlockTag;
 };
+
+export function blockOptionsSpread(args: BlockOptions): BlockOptions {
+  return args.blockNumber !== undefined
+    ? { blockNumber: args.blockNumber }
+    : args.blockTag !== undefined
+      ? { blockTag: args.blockTag }
+      : {};
+}
+
+export function buildCallParameters(
+  args: {
+    account: Address;
+    to: Address;
+    data: Hex;
+    gas?: bigint;
+    stateOverride?: StateOverride;
+  } & BlockOptions,
+): CallParameters {
+  const base = {
+    account: args.account,
+    to: args.to,
+    data: args.data,
+    ...(args.stateOverride !== undefined ? { stateOverride: args.stateOverride } : {}),
+    ...(args.gas !== undefined ? { gas: args.gas } : {}),
+  };
+  return (
+    args.blockNumber !== undefined
+      ? { ...base, blockNumber: args.blockNumber }
+      : { ...base, ...(args.blockTag !== undefined ? { blockTag: args.blockTag } : {}) }
+  ) satisfies CallParameters;
+}
 
 export type AccessListEntry = AccessList[number];
 

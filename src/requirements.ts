@@ -10,12 +10,14 @@ import type {
   SimulationDebug,
   TokenSlotOverride,
 } from "./types.js";
+import { discoverBalanceSlots as discoverPublicBalanceSlots } from "./slots.js";
 import { addressKey, uniqueAddresses } from "./internal/address.js";
 import { discoverCandidateAddresses } from "./internal/discovery.js";
 import { OVERRIDE_TOKEN_AMOUNT, uint256Hex } from "./internal/hex.js";
 import { allowanceSlotFor, inferAllowanceBaseSlot } from "./internal/layout.js";
-import { discoverAllowanceSlot, discoverBalanceSlot, readAllowance } from "./internal/probes.js";
+import { discoverAllowanceSlot, readAllowance } from "./internal/probes.js";
 import type { BlockOptions } from "./internal/rpc.js";
+import { blockOptionsSpread } from "./internal/rpc.js";
 import { runSimulator } from "./internal/simulator.js";
 import type { StorageOverride } from "./internal/stateOverride.js";
 
@@ -55,8 +57,7 @@ export async function discoverRequirements(
     calls,
     gas,
     debug: args.debug,
-    blockNumber: args.blockNumber,
-    blockTag: args.blockTag,
+    ...blockOptionsSpread(args),
   });
   const recon = await runSimulator({
     client: args.client,
@@ -66,15 +67,21 @@ export async function discoverRequirements(
     allowanceProbes: [],
     gas,
     debug: args.debug,
-    blockNumber: args.blockNumber,
-    blockTag: args.blockTag,
+    ...blockOptionsSpread(args),
   });
   const tokens = recon.probeData.observedTokens;
   const spenders = uniqueAddresses([...calls.map((call) => call.to), ...candidateAddresses]).filter(
     (address) => addressKey(address) !== addressKey(args.from),
   );
 
-  const balanceSlots = await discoverBalanceSlots({ ...args, tokens, gas });
+  const balanceSlots = await discoverPublicBalanceSlots({
+    client: args.client,
+    owner: args.from,
+    tokens,
+    gas,
+    debug: args.debug,
+    ...blockOptionsSpread(args),
+  });
   const allowanceSlots = await discoverAllAllowanceSlots({ ...args, tokens, spenders, gas });
   const allowanceProbes = allowanceSlots.map((slot) => ({
     token: slot.token,
@@ -90,8 +97,7 @@ export async function discoverRequirements(
     allowanceProbes,
     gas,
     debug: args.debug,
-    blockNumber: args.blockNumber,
-    blockTag: args.blockTag,
+    ...blockOptionsSpread(args),
   });
 
   return {
@@ -115,32 +121,6 @@ export async function discoverRequirements(
     revertReason: measurement.revertReason,
     failingCallIndex: measurement.failingCallIndex,
   };
-}
-
-async function discoverBalanceSlots(
-  args: {
-    client: PublicClient;
-    from: Address;
-    tokens: readonly Address[];
-    gas: bigint;
-    debug?: SimulationDebug;
-  } & BlockOptions,
-): Promise<BalanceSlot[]> {
-  const slots: BalanceSlot[] = [];
-  for (const token of args.tokens) {
-    const slot = await discoverBalanceSlot({
-      client: args.client,
-      token,
-      owner: args.from,
-      sentinel: OVERRIDE_TOKEN_AMOUNT,
-      gas: args.gas,
-      debug: args.debug,
-      blockNumber: args.blockNumber,
-      blockTag: args.blockTag,
-    });
-    if (slot !== undefined) slots.push(slot);
-  }
-  return slots;
 }
 
 async function discoverAllAllowanceSlots(
@@ -197,8 +177,7 @@ async function discoverProbedAllowanceSlot(
     sentinel: OVERRIDE_TOKEN_AMOUNT,
     gas: args.gas,
     debug: args.debug,
-    blockNumber: args.blockNumber,
-    blockTag: args.blockTag,
+    ...blockOptionsSpread(args),
   });
 }
 
@@ -225,8 +204,7 @@ async function discoverComputedAllowanceSlot(
     gas: args.gas,
     debug: args.debug,
     debugStep: "allowanceSlot.computedVerify",
-    blockNumber: args.blockNumber,
-    blockTag: args.blockTag,
+    ...blockOptionsSpread(args),
   });
   if (allowance === OVERRIDE_TOKEN_AMOUNT)
     return { token: args.token, spender: args.spender, slot };

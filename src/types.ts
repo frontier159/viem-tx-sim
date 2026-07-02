@@ -8,7 +8,7 @@ export type SimulatedCall = {
 
 export type SimulationDebugEvent = {
   phase: "start" | "success" | "error";
-  method: "eth_call" | "eth_createAccessList" | "eth_getCode";
+  method: "eth_call" | "eth_createAccessList";
   step: string;
   details?: Record<string, unknown>;
   durationMs?: number;

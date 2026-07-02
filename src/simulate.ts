@@ -3,6 +3,7 @@ import type { SimulateArgs, SimulatedCall, SimulationResult } from "./types.js";
 import { uniqueAddresses } from "./internal/address.js";
 import { discoverCandidateAddresses } from "./internal/discovery.js";
 import { OVERRIDE_TOKEN_AMOUNT, uint256Hex } from "./internal/hex.js";
+import { blockOptionsSpread } from "./internal/rpc.js";
 import { runSimulator } from "./internal/simulator.js";
 import type { StorageOverride } from "./internal/stateOverride.js";
 
@@ -23,8 +24,7 @@ export async function simulate(args: SimulateArgs): Promise<SimulationResult> {
     client: args.client,
     from: args.from,
     calls,
-    ...(args.blockNumber !== undefined ? { blockNumber: args.blockNumber } : {}),
-    ...(args.blockTag !== undefined ? { blockTag: args.blockTag } : {}),
+    ...blockOptionsSpread(args),
     gas,
     ...(args.debug !== undefined ? { debug: args.debug } : {}),
   });
@@ -46,8 +46,7 @@ export async function simulate(args: SimulateArgs): Promise<SimulationResult> {
     ]),
     storageOverrides,
     debug: args.debug,
-    ...(args.blockNumber !== undefined ? { blockNumber: args.blockNumber } : {}),
-    ...(args.blockTag !== undefined ? { blockTag: args.blockTag } : {}),
+    ...blockOptionsSpread(args),
     gas,
   });
 }
