@@ -1,21 +1,31 @@
-import type { Abi, Address, Hex } from "viem";
-import { decodeFunctionResult, encodeFunctionData, parseAbi } from "viem";
+import type { Abi, Address, Hex, StateOverride } from "viem";
+import {
+  decodeErrorResult,
+  decodeFunctionResult,
+  encodeFunctionData,
+  parseAbi,
+  slice,
+  size,
+} from "viem";
 
-import type { AssetBalanceDelta, SimulatedCall, SimulationResult } from "../types.js";
+import type {
+  AssetBalanceDelta,
+  SimulatedCall,
+  SimulationResult,
+  TokenSlotOverride,
+} from "../types.js";
 import { StateOverrideUnsupportedError } from "../errors.js";
 import { txSimulatorRuntimeBytecode } from "../generated/txSimulatorBytecode.js";
-import { uniqueAddresses } from "./address.js";
-import { withRpcDebug } from "./debug.js";
-import { getCallData } from "./hex.js";
-import { decodeRevert } from "./revert.js";
+import { addressKey, getCallData, normalizeAddress, uint256Hex, uniqueAddresses } from "./data.js";
 import type { RpcCallArgs } from "./rpc.js";
-import { blockOptionsSpread, buildCallParameters, formatRpcError } from "./rpc.js";
 import {
-  buildStateOverride,
-  storageOverridesToStateDiff,
-  type StateOverrideEntry,
-  type StorageOverride,
-} from "./stateOverride.js";
+  blockOptionsSpread,
+  buildCallParameters,
+  createAccessList,
+  formatRpcError,
+  withRpcDebug,
+} from "./rpc.js";
+import { OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
 
 type ProbeData = {
   observedTokens: Address[];
@@ -42,7 +52,7 @@ export async function runSimulator(
     from: Address;
     calls: readonly SimulatedCall[];
     candidates: readonly Address[];
-    storageOverrides?: readonly StorageOverride[];
+    tokenSlotOverrides?: readonly TokenSlotOverride[];
     extraStateOverrides?: readonly StateOverrideEntry[];
     allowanceProbes?: readonly { token: Address; spender: Address }[];
     debugStep?: string;
@@ -66,7 +76,7 @@ export async function runSimulator(
 
   const stateOverride = buildStateOverride([
     { address: args.from, code: txSimulatorRuntimeBytecode },
-    ...storageOverridesToStateDiff(args.storageOverrides ?? []),
+    ...tokenSlotOverridesToStateDiff(args.tokenSlotOverrides ?? []),
     ...(args.extraStateOverrides ?? []),
   ]);
 
@@ -81,7 +91,7 @@ export async function runSimulator(
           from: args.from,
           calls: args.calls.length,
           candidates: candidates.length,
-          storageOverrides: args.storageOverrides?.length ?? 0,
+          storageOverrides: args.tokenSlotOverrides?.length ?? 0,
           stateOverrideAccounts: stateOverride.length,
         },
       },
@@ -163,4 +173,123 @@ export async function runSimulator(
     assetBalanceDeltas,
     probeData,
   };
+}
+
+export async function discoverCandidateAddresses(
+  args: RpcCallArgs & {
+    from: Address;
+    calls: readonly SimulatedCall[];
+  },
+): Promise<Address[]> {
+  const accessLists = await Promise.all(
+    args.calls.map((call) =>
+      createAccessList({
+        client: args.client,
+        from: args.from,
+        to: call.to,
+        data: call.data,
+        value: call.value ?? 0n,
+        gas: args.gas,
+        debug: args.debug,
+        debugStep: "candidateDiscovery.accessList",
+        ...blockOptionsSpread(args),
+      }),
+    ),
+  );
+  const candidates = args.calls.flatMap((call, index) => [
+    call.to,
+    ...(accessLists[index] ?? []).map((entry) => entry.address),
+  ]);
+
+  return uniqueAddresses(candidates);
+}
+
+type DecodedRevert = {
+  revertReason?: string;
+  revertError?: { name: string; args: readonly unknown[] };
+  revertSelector?: Hex;
+};
+
+function decodeRevert(data: Hex | undefined, errorAbi?: Abi): DecodedRevert {
+  if (!data || data === "0x") return {};
+
+  const revertSelector = size(data) >= 4 ? slice(data, 0, 4) : undefined;
+  try {
+    const decoded = decodeErrorResult({ abi: errorAbi ?? [], data });
+    return {
+      revertReason: formatReason(decoded.errorName, decoded.args ?? []),
+      revertError: { name: decoded.errorName, args: decoded.args ?? [] },
+      ...(revertSelector !== undefined ? { revertSelector } : {}),
+    };
+  } catch {
+    return revertSelector !== undefined ? { revertSelector } : {};
+  }
+}
+
+function formatReason(name: string, args: readonly unknown[]): string {
+  if (name === "Error") return String(args[0]);
+  if (name === "Panic") return `Panic(${String(args[0])})`;
+  return `${name}(${args.map((arg) => String(arg)).join(", ")})`;
+}
+
+type StateOverrideEntry = StateOverride[number];
+
+type MutableStateOverrideEntry = {
+  address: Address;
+  code?: Hex;
+  balance?: bigint;
+  stateDiff?: {
+    slot: Hex;
+    value: Hex;
+  }[];
+};
+
+function buildStateOverride(entries: readonly StateOverrideEntry[]): StateOverride {
+  const merged = new Map<string, MutableStateOverrideEntry>();
+
+  for (const entry of entries) {
+    const normalized = normalizeAddress(entry.address);
+    const key = addressKey(normalized);
+    const existing = merged.get(key) ?? { address: normalized, stateDiff: [] };
+
+    if (entry.code) existing.code = entry.code;
+    if (entry.balance !== undefined) existing.balance = entry.balance;
+    if (entry.stateDiff) {
+      const bySlot = new Map(
+        (existing.stateDiff ?? []).map((item) => [item.slot.toLowerCase(), item]),
+      );
+      for (const diff of entry.stateDiff) bySlot.set(diff.slot.toLowerCase(), diff);
+      existing.stateDiff = [...bySlot.values()];
+    }
+
+    merged.set(key, existing);
+  }
+
+  return [...merged.values()].map((entry): StateOverrideEntry => {
+    if (entry.stateDiff?.length === 0) {
+      return {
+        address: entry.address,
+        code: entry.code,
+        balance: entry.balance,
+      };
+    }
+    return entry;
+  });
+}
+
+function tokenSlotOverridesToStateDiff(overrides: readonly TokenSlotOverride[]): StateOverride {
+  const byAddress = new Map<string, MutableStateOverrideEntry>();
+
+  for (const override of overrides) {
+    const normalized = normalizeAddress(override.token);
+    const key = addressKey(normalized);
+    const entry = byAddress.get(key) ?? { address: normalized, stateDiff: [] };
+    entry.stateDiff?.push({
+      slot: override.slot,
+      value: uint256Hex(override.amount ?? OVERRIDE_TOKEN_AMOUNT),
+    });
+    byAddress.set(key, entry);
+  }
+
+  return [...byAddress.values()];
 }

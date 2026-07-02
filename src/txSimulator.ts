@@ -1,13 +1,9 @@
 import { DEFAULT_SIMULATION_GAS_LIMIT } from "./constants.js";
 import { InvalidSimulationInputError } from "./errors.js";
-import { discoverRequirements } from "./requirements.js";
-import { uniqueAddresses } from "./internal/address.js";
-import { discoverCandidateAddresses } from "./internal/discovery.js";
-import { OVERRIDE_TOKEN_AMOUNT, uint256Hex } from "./internal/hex.js";
+import { discoverRequirements } from "./internal/requirements.js";
 import { blockOptionsSpread, type ClientArgs } from "./internal/rpc.js";
-import { runSimulator } from "./internal/simulator.js";
-import { discoverAllowanceSlots, discoverBalanceSlots } from "./internal/slotDiscovery.js";
-import type { StorageOverride } from "./internal/stateOverride.js";
+import { discoverCandidateAddresses, runSimulator } from "./internal/simulator.js";
+import { discoverAllowanceSlots, discoverBalanceSlots } from "./internal/slots.js";
 import type {
   AllowanceSlotDiscovery,
   BalanceSlotDiscovery,
@@ -111,11 +107,11 @@ export const TxSimulator = {
    */
   create(bound: TxSimulatorConfig): TxSimulator {
     const defaults = (args: BoundCallDefaults) => {
-      const gas = args.gas ?? bound.gas;
+      const gas = args.gas ?? bound.gas ?? DEFAULT_SIMULATION_GAS_LIMIT;
       const debug = args.debug ?? bound.debug;
 
       return {
-        ...(gas !== undefined ? { gas } : {}),
+        gas,
         ...(debug !== undefined ? { debug } : {}),
       };
     };
@@ -145,7 +141,6 @@ async function runSimulate(args: SimulateArgs & ClientArgs): Promise<SimulationR
     throw new InvalidSimulationInputError("simulate requires at least one call.");
   }
 
-  const gas = args.gas ?? DEFAULT_SIMULATION_GAS_LIMIT;
   const calls = args.calls.map((call) => ({
     to: call.to,
     data: call.data,
@@ -156,29 +151,21 @@ async function runSimulate(args: SimulateArgs & ClientArgs): Promise<SimulationR
     from: args.from,
     calls,
     ...blockOptionsSpread(args),
-    gas,
+    gas: args.gas,
     ...(args.debug !== undefined ? { debug: args.debug } : {}),
   });
 
   const tokenSlotOverrides = args.tokenSlotOverrides ?? [];
-  const storageOverrides: StorageOverride[] = tokenSlotOverrides.map((override) => ({
-    address: override.token,
-    slot: override.slot,
-    value: uint256Hex(override.amount ?? OVERRIDE_TOKEN_AMOUNT),
-  }));
 
   return runSimulator({
     client: args.client,
     from: args.from,
     calls,
-    candidates: uniqueAddresses([
-      ...candidateAddresses,
-      ...tokenSlotOverrides.map((slot) => slot.token),
-    ]),
-    storageOverrides,
+    candidates: [...candidateAddresses, ...tokenSlotOverrides.map((slot) => slot.token)],
+    tokenSlotOverrides,
     debug: args.debug,
     ...blockOptionsSpread(args),
-    gas,
+    gas: args.gas,
     ...(args.errorAbi !== undefined ? { errorAbi: args.errorAbi } : {}),
   });
 }

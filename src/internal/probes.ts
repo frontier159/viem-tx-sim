@@ -2,9 +2,9 @@ import type { Address, Hex, StateOverride } from "viem";
 import { encodeFunctionData, erc20Abi } from "viem";
 
 import type { AllowanceSlot, BalanceSlot } from "../types.js";
-import { addressKey } from "./address.js";
-import { withRpcDebug } from "./debug.js";
-import { getCallData, uint256Hex } from "./hex.js";
+import { addressKey } from "./data.js";
+import { withRpcDebug } from "./rpc.js";
+import { getCallData, uint256Hex } from "./data.js";
 import type { RpcCallArgs } from "./rpc.js";
 import { blockOptionsSpread, buildCallParameters, createAccessList } from "./rpc.js";
 

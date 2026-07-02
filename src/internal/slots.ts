@@ -1,13 +1,64 @@
-import type { Address } from "viem";
+import type { Address, Hex } from "viem";
+import { encodeAbiParameters, keccak256 } from "viem";
 
-import type { AllowanceSlot } from "../types.js";
-import { addressKey } from "./address.js";
-import { uint256Hex } from "./hex.js";
-import { allowanceSlotFor, inferAllowanceBaseSlot } from "./layout.js";
-import { discoverAllowanceSlot, readAllowance } from "./probes.js";
-import type { RpcCallArgs } from "./rpc.js";
+import { OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
+import type {
+  AllowanceSlot,
+  AllowanceSlotDiscovery,
+  BalanceSlot,
+  BalanceSlotDiscovery,
+  DiscoverAllowanceSlotsArgs,
+  DiscoverBalanceSlotsArgs,
+} from "../types.js";
+import { addressKey, uint256Hex } from "./data.js";
+import { discoverAllowanceSlot, discoverBalanceSlot, readAllowance } from "./probes.js";
+import type { ClientArgs, RpcCallArgs } from "./rpc.js";
 import { blockOptionsSpread } from "./rpc.js";
 
+// Orchestration
+/** @internal Implements `TxSimulator.discoverBalanceSlots`. Prefer the instance API from the package root. */
+export async function discoverBalanceSlots(
+  args: DiscoverBalanceSlotsArgs & ClientArgs,
+): Promise<BalanceSlotDiscovery> {
+  const slots = await Promise.all(
+    args.tokens.map((token) =>
+      discoverBalanceSlot({
+        client: args.client,
+        token,
+        owner: args.from,
+        sentinel: OVERRIDE_TOKEN_AMOUNT,
+        gas: args.gas,
+        debug: args.debug,
+        ...blockOptionsSpread(args),
+      }),
+    ),
+  );
+  return {
+    slots: slots.filter((slot): slot is BalanceSlot => slot !== undefined),
+    unresolved: args.tokens.filter((_, index) => slots[index] === undefined),
+  };
+}
+
+/** @internal Implements `TxSimulator.discoverAllowanceSlots`. Prefer the instance API from the package root. */
+export async function discoverAllowanceSlots(
+  args: DiscoverAllowanceSlotsArgs & ClientArgs,
+): Promise<AllowanceSlotDiscovery> {
+  const slots = await discoverAllowanceSlotsWithInference({
+    client: args.client,
+    from: args.from,
+    pairs: args.pairs,
+    sentinel: OVERRIDE_TOKEN_AMOUNT,
+    gas: args.gas,
+    debug: args.debug,
+    ...blockOptionsSpread(args),
+  });
+  return {
+    slots: slots.filter((slot): slot is AllowanceSlot => slot !== undefined),
+    unresolved: args.pairs.filter((_, index) => slots[index] === undefined),
+  };
+}
+
+// Inference internals
 type AllowancePair = {
   token: Address;
   spender: Address;
@@ -17,7 +68,7 @@ type IndexedAllowancePair = AllowancePair & {
   index: number;
 };
 
-export async function discoverAllowanceSlotsWithInference(
+async function discoverAllowanceSlotsWithInference(
   args: RpcCallArgs & {
     from: Address;
     pairs: readonly AllowancePair[];
@@ -115,4 +166,30 @@ async function computeAllowanceSlot(
   });
   if (allowance === args.sentinel) return { token: args.token, spender: args.spender, slot };
   return probeAllowanceSlot(args);
+}
+
+// Layout math
+function mappingSlot(key: Address, baseSlot: Hex | bigint): Hex {
+  return keccak256(
+    encodeAbiParameters(
+      [{ type: "address" }, { type: "uint256" }],
+      [key, typeof baseSlot === "bigint" ? baseSlot : BigInt(baseSlot)],
+    ),
+  );
+}
+
+function allowanceSlotFor(owner: Address, spender: Address, base: bigint): Hex {
+  return mappingSlot(spender, mappingSlot(owner, base));
+}
+
+function inferAllowanceBaseSlot(args: {
+  probedSlot: Hex;
+  owner: Address;
+  spender: Address;
+}): bigint | undefined {
+  const target = args.probedSlot.toLowerCase();
+  for (let base = 0n; base <= 64n; ++base) {
+    if (allowanceSlotFor(args.owner, args.spender, base).toLowerCase() === target) return base;
+  }
+  return undefined;
 }

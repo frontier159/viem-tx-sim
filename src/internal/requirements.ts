@@ -1,8 +1,7 @@
 import type { Address, Hex } from "viem";
 import { decodeFunctionData, parseAbi } from "viem";
 
-import { DEFAULT_SIMULATION_GAS_LIMIT } from "./constants.js";
-import { InvalidSimulationInputError } from "./errors.js";
+import { InvalidSimulationInputError } from "../errors.js";
 import type {
   AllowanceSlot,
   AllowanceSlotPair,
@@ -11,15 +10,12 @@ import type {
   DiscoverRequirementsArgs,
   SimulatedCall,
   TokenSlotOverride,
-} from "./types.js";
-import { discoverAllowanceSlots, discoverBalanceSlots } from "./internal/slotDiscovery.js";
-import { addressKey, uniqueAddresses } from "./internal/address.js";
-import { discoverCandidateAddresses } from "./internal/discovery.js";
-import { OVERRIDE_TOKEN_AMOUNT, uint256Hex } from "./internal/hex.js";
-import type { ClientArgs } from "./internal/rpc.js";
-import { blockOptionsSpread } from "./internal/rpc.js";
-import { runSimulator } from "./internal/simulator.js";
-import type { StorageOverride } from "./internal/stateOverride.js";
+} from "../types.js";
+import { discoverAllowanceSlots, discoverBalanceSlots } from "./slots.js";
+import { addressKey, uniqueAddresses } from "./data.js";
+import type { ClientArgs } from "./rpc.js";
+import { blockOptionsSpread } from "./rpc.js";
+import { discoverCandidateAddresses, runSimulator } from "./simulator.js";
 
 const allowanceSettingAbi = parseAbi([
   "function approve(address spender, uint256 amount) returns (bool)",
@@ -39,7 +35,6 @@ export async function discoverRequirements(
     throw new InvalidSimulationInputError("discoverRequirements requires at least one call.");
   }
 
-  const gas = args.gas ?? DEFAULT_SIMULATION_GAS_LIMIT;
   const calls = args.calls.map((call) => ({
     to: call.to,
     data: call.data,
@@ -49,7 +44,7 @@ export async function discoverRequirements(
     client: args.client,
     from: args.from,
     calls,
-    gas,
+    gas: args.gas,
     debug: args.debug,
     ...blockOptionsSpread(args),
   });
@@ -59,7 +54,7 @@ export async function discoverRequirements(
     calls,
     candidates: candidateAddresses,
     allowanceProbes: [],
-    gas,
+    gas: args.gas,
     debug: args.debug,
     ...blockOptionsSpread(args),
     ...(args.errorAbi !== undefined ? { errorAbi: args.errorAbi } : {}),
@@ -73,7 +68,7 @@ export async function discoverRequirements(
     client: args.client,
     from: args.from,
     tokens,
-    gas,
+    gas: args.gas,
     debug: args.debug,
     ...blockOptionsSpread(args),
   });
@@ -81,7 +76,7 @@ export async function discoverRequirements(
     client: args.client,
     from: args.from,
     pairs: allowancePairs(tokens, spenders),
-    gas,
+    gas: args.gas,
     debug: args.debug,
     ...blockOptionsSpread(args),
   });
@@ -91,15 +86,15 @@ export async function discoverRequirements(
     token: slot.token,
     spender: slot.spender,
   }));
-  const storageOverrides = [...balanceSlots, ...allowanceSlots].map(slotOverride);
+  const tokenSlotOverrides = [...balanceSlots, ...allowanceSlots].map(tokenSlotOverride);
   const measurement = await runSimulator({
     client: args.client,
     from: args.from,
     calls,
     candidates: candidateAddresses,
-    storageOverrides,
+    tokenSlotOverrides,
     allowanceProbes,
-    gas,
+    gas: args.gas,
     debug: args.debug,
     ...blockOptionsSpread(args),
     ...(args.errorAbi !== undefined ? { errorAbi: args.errorAbi } : {}),
@@ -245,14 +240,6 @@ function tokenOutflow(
 ): bigint {
   const index = candidates.findIndex((candidate) => addressKey(candidate) === addressKey(token));
   return index === -1 ? 0n : (maxTokenOutflows[index] ?? 0n);
-}
-
-function slotOverride(slot: BalanceSlot | AllowanceSlot): StorageOverride {
-  return {
-    address: slot.token,
-    slot: slot.slot,
-    value: uint256Hex(OVERRIDE_TOKEN_AMOUNT),
-  };
 }
 
 function tokenSlotOverride(slot: BalanceSlot | AllowanceSlot): TokenSlotOverride {
