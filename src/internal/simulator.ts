@@ -107,13 +107,7 @@ export async function runSimulator(
     );
   }
 
-  const decoded = decodeFunctionResult({
-    abi: txSimulatorAbi,
-    functionName: "simulate",
-    data: callData,
-  }) as unknown;
-  const tuple = Array.isArray(decoded) ? decoded[0] : decoded;
-  const result = tuple as {
+  let result: {
     success: boolean;
     failingCallIndex: bigint;
     revertData: Hex;
@@ -125,6 +119,19 @@ export async function runSimulator(
     maxNativeOutflow: bigint;
     allowanceCheckpoints: bigint[];
   };
+  try {
+    const decoded = decodeFunctionResult({
+      abi: txSimulatorAbi,
+      functionName: "simulate",
+      data: callData,
+    }) as unknown;
+    const tuple = Array.isArray(decoded) ? decoded[0] : decoded;
+    result = tuple as typeof result;
+  } catch (cause) {
+    throw new StateOverrideUnsupportedError(
+      formatRpcError("eth_call returned undecodable simulator output", cause),
+    );
+  }
 
   const assetBalanceDeltas: AssetBalanceDelta[] = [];
   if (result.nativeDelta !== 0n) {
