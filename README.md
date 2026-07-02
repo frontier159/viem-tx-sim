@@ -5,7 +5,7 @@ RPC-only transaction simulation helpers for [viem](https://viem.sh) applications
 ## Motivation
 
 Credit to [apoorv X thread](https://x.com/apoorveth/status/2041544070481449266)
-Transcribed in [motivation.md](.docs/motivation.md)
+Transcribed in [motivation.md](./docs/motivation.md)
 
 Every wallet shows "asset changes" before you sign. Most do it by sending your calldata to a centralized simulation API — a single point of failure and a privacy leak. viem-tx-sim makes the EVM do the work itself:
 

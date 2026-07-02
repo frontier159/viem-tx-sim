@@ -2,6 +2,12 @@
 
 This document transcribes the [apoorv X thread](https://x.com/apoorveth/status/2041544070481449266) that motivated this package.
 
+> **Historical note**: this thread describes the original design, in which
+> the simulator retried automatically with forged balances and allowances
+> (post 9). The shipped library made that explicit instead: `simulate()` is
+> a single pass, and callers opt into forging via `discoverBalanceSlots()` /
+> `discoverAllowanceSlots()` / `discoverRequirements()` - see the README.
+
 ## Post
 
 Every wallet shows you "asset changes" before you sign a transaction.
