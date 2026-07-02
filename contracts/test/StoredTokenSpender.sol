@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {IERC20TransferFrom} from "./IERC20TransferFrom.sol";
+import {IERC20} from "./IERC20.sol";
 
 contract StoredTokenSpender {
     error PullFailed();
@@ -15,6 +15,6 @@ contract StoredTokenSpender {
     }
 
     function pull(uint256 amount) external {
-        if (!IERC20TransferFrom(TOKEN).transferFrom(msg.sender, address(this), amount)) revert PullFailed();
+        if (!IERC20(TOKEN).transferFrom(msg.sender, address(this), amount)) revert PullFailed();
     }
 }

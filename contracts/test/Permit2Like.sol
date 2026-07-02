@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IERC1271Like} from "../interfaces/IERC1271Like.sol";
-import {IERC20TransferFrom} from "./IERC20TransferFrom.sol";
+import {IERC20} from "./IERC20.sol";
 
 contract Permit2Like {
     error Bad1271Signature();
@@ -20,7 +20,7 @@ contract Permit2Like {
             revert BadEoaSignature();
         }
 
-        if (!IERC20TransferFrom(token).transferFrom(msg.sender, address(this), amount)) revert PullFailed();
+        if (!IERC20(token).transferFrom(msg.sender, address(this), amount)) revert PullFailed();
     }
 
     function _recover(bytes32 hash, bytes calldata signature) internal pure returns (address signer) {

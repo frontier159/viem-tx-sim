@@ -112,10 +112,6 @@ describe("viem-tx-sim", () => {
       tokenSlotOverrides: allowanceSlots,
       debug: (event) => events.push(event),
     });
-    console.log(
-      "events",
-      events.filter((event) => event.phase === "start"),
-    );
 
     expect(result.status).toBe("success");
     expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -321n });

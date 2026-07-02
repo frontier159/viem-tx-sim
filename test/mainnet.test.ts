@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createPublicClient, encodeFunctionData, http } from "viem";
+import { createPublicClient, encodeFunctionData, erc20Abi, http } from "viem";
 import { mainnet } from "viem/chains";
 
 import { discoverBalanceSlots, simulate, type SimulationDebugEvent } from "../src/index.js";
@@ -22,18 +22,7 @@ mainnetDescribe("mainnet RPC integration", () => {
       transport: http(MAINNET_RPC_URL),
     });
     const calldata = encodeFunctionData({
-      abi: [
-        {
-          type: "function",
-          name: "transfer",
-          stateMutability: "nonpayable",
-          inputs: [
-            { name: "to", type: "address" },
-            { name: "amount", type: "uint256" },
-          ],
-          outputs: [{ name: "", type: "bool" }],
-        },
-      ],
+      abi: erc20Abi,
       functionName: "transfer",
       args: [RECIPIENT, 1n],
     });

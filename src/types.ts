@@ -48,6 +48,31 @@ export type SimulateArgs = {
   tokenSlotOverrides?: readonly TokenSlotOverride[];
 };
 
+export type RequiredBalance = {
+  token: Address;
+  amount: bigint;
+};
+
+export type RequiredAllowance = {
+  token: Address;
+  spender: Address;
+  amount: bigint;
+};
+
+export type DiscoveredRequirements = {
+  /** Outcome of the fully-forged measurement simulation. */
+  status: "success" | "reverted";
+  /** Max cumulative native outflow across call boundaries. */
+  native: bigint;
+  balances: RequiredBalance[];
+  allowances: RequiredAllowance[];
+  /** Verified slots discovered along the way - pass to simulate() as tokenSlotOverrides. */
+  slots: TokenSlotOverride[];
+  revertData?: Hex;
+  revertReason?: string;
+  failingCallIndex?: number;
+};
+
 export type AssetBalanceDelta = {
   asset: "native" | Address;
   delta: bigint;

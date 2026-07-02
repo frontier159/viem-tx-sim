@@ -1,10 +1,9 @@
 import type { Address, CallParameters, Hex, PublicClient, StateOverride } from "viem";
-import { decodeFunctionResult, encodeFunctionData } from "viem";
+import { decodeFunctionResult, encodeFunctionData, parseAbi } from "viem";
 
 import type { AssetBalanceDelta, SimulatedCall, SimulationResult } from "../types.js";
 import { StateOverrideUnsupportedError } from "../errors.js";
 import { txSimulatorRuntimeBytecode } from "../generated/txSimulatorBytecode.js";
-import { txSimulatorAbi } from "./abi.js";
 import { uniqueAddresses } from "./address.js";
 import { withRpcDebug } from "./debug.js";
 import { getCallData } from "./hex.js";
@@ -18,6 +17,26 @@ import {
   type StorageOverride,
 } from "./stateOverride.js";
 
+export type ProbeData = {
+  observedTokens: Address[];
+  candidates: Address[];
+  maxTokenOutflows: bigint[];
+  maxNativeOutflow: bigint;
+  allowanceCheckpoints: bigint[];
+};
+
+export type SimulatorResult = SimulationResult & {
+  probeData: ProbeData;
+};
+
+const txSimulatorAbi = parseAbi([
+  "struct SimulatedCall { address to; uint256 value; bytes data; }",
+  "struct AllowanceProbe { address token; address spender; }",
+  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; int256 nativeDelta; address[] observedTokens; address[] deltaTokens; int256[] tokenDeltas; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; }",
+  "function simulate(SimulatedCall[] calls, address[] candidates, AllowanceProbe[] probes) returns (SimulationResult)",
+  "function isValidSignature(bytes32 hash, bytes signature) view returns (bytes4)",
+]);
+
 export async function runSimulator(
   args: {
     client: PublicClient;
@@ -26,11 +45,13 @@ export async function runSimulator(
     candidates: readonly Address[];
     storageOverrides?: readonly StorageOverride[];
     extraStateOverrides?: readonly StateOverrideEntry[];
+    allowanceProbes?: readonly { token: Address; spender: Address }[];
     gas?: bigint;
     debug?: import("../types.js").SimulationDebug;
     debugStep?: string;
   } & BlockOptions,
-): Promise<SimulationResult> {
+): Promise<SimulatorResult> {
+  const candidates = uniqueAddresses(args.candidates);
   const data = encodeFunctionData({
     abi: txSimulatorAbi,
     functionName: "simulate",
@@ -40,7 +61,8 @@ export async function runSimulator(
         value: call.value ?? 0n,
         data: call.calldata,
       })),
-      uniqueAddresses(args.candidates),
+      candidates,
+      args.allowanceProbes ?? [],
     ],
   });
 
@@ -60,7 +82,7 @@ export async function runSimulator(
         details: {
           from: args.from,
           calls: args.calls.length,
-          candidates: uniqueAddresses(args.candidates).length,
+          candidates: candidates.length,
           storageOverrides: args.storageOverrides?.length ?? 0,
           stateOverrideAccounts: stateOverride.length,
         },
@@ -96,8 +118,12 @@ export async function runSimulator(
     failingCallIndex: bigint;
     revertData: Hex;
     nativeDelta: bigint;
+    observedTokens: Address[];
     deltaTokens: Address[];
     tokenDeltas: bigint[];
+    maxTokenOutflows: bigint[];
+    maxNativeOutflow: bigint;
+    allowanceCheckpoints: bigint[];
   };
 
   const assetBalanceDeltas: AssetBalanceDelta[] = [];
@@ -124,6 +150,13 @@ export async function runSimulator(
     revertData,
     revertReason: revertData === undefined ? undefined : decodeRevertReason(revertData),
     failingCallIndex,
+    probeData: {
+      observedTokens: uniqueAddresses(result.observedTokens),
+      candidates,
+      maxTokenOutflows: result.maxTokenOutflows,
+      maxNativeOutflow: result.maxNativeOutflow,
+      allowanceCheckpoints: result.allowanceCheckpoints,
+    },
   };
 }
 

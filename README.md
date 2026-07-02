@@ -97,3 +97,23 @@ const result = await simulate({
 ```
 
 `simulate()` does not retry or forge state by itself. Balance slots are reusable per token/owner, and allowance slots are reusable per token/owner/spender for the block/state you trust.
+
+## Discovering requirements (optional)
+
+`discoverRequirements()` measures required balances and approvals by forging generous state and observing per-call balance and allowance changes. Amounts are estimates measured under forged state; callers should pad them. Tokens that skip allowance decrements for large non-max allowances can under-report.
+
+```ts
+import { discoverRequirements, simulate } from "viem-tx-sim";
+
+const requirements = await discoverRequirements({ client, from, calls });
+// requirements.allowances -> [{ token, spender, amount }]
+// requirements.balances   -> [{ token, amount }]
+// requirements.slots      -> feed to simulate({ ..., tokenSlotOverrides })
+
+const result = await simulate({
+  client,
+  from,
+  calls,
+  tokenSlotOverrides: requirements.slots,
+});
+```

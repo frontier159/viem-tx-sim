@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {IERC20TransferFrom} from "./IERC20TransferFrom.sol";
+import {IERC20} from "./IERC20.sol";
 
-contract TestToken is IERC20TransferFrom {
+contract TestToken is IERC20 {
     error AlreadyInitialized();
     error InsufficientAllowance();
     error InsufficientBalance();
@@ -73,7 +73,4 @@ contract TestToken is IERC20TransferFrom {
         balanceOf[to] += amount;
         emit Transfer(from, to, amount);
     }
-
-    event Approval(address indexed owner, address indexed spender, uint256 value);
-    event Transfer(address indexed from, address indexed to, uint256 value);
 }

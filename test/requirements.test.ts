@@ -1,0 +1,232 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { encodeFunctionData, getAddress, parseEther } from "viem";
+
+import { discoverRequirements, type SimulationDebugEvent } from "../src/index.js";
+import { artifact } from "./helpers/artifacts.js";
+import { type AnvilTestContext, startAnvil } from "./helpers/anvil.js";
+
+describe("discoverRequirements", () => {
+  let ctx: AnvilTestContext;
+
+  beforeEach(async () => {
+    ctx = await startAnvil();
+  });
+
+  afterEach(() => {
+    ctx?.stop();
+  });
+
+  it("measures vault balance and allowance requirements", async () => {
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const vault = await deploy("TokenVault.sol", "TokenVault", [token.address]);
+    const calldata = encodeFunctionData({
+      abi: vault.abi,
+      functionName: "deposit",
+      args: [500n],
+    });
+
+    const requirements = await discoverRequirements({
+      client: ctx.publicClient,
+      from: ctx.account.address,
+      calls: [{ to: vault.address, calldata }],
+    });
+
+    expect(requirements.status).toBe("success");
+    expect(requirements.balances).toContainEqual({ token: token.address, amount: 500n });
+    expect(requirements.allowances).toContainEqual({
+      token: token.address,
+      spender: vault.address,
+      amount: 500n,
+    });
+  });
+
+  it("attributes one token pulled by two spenders exactly", async () => {
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spenderA = await deploy("Spender.sol", "Spender");
+    const spenderB = await deploy("Spender.sol", "Spender");
+    const pullA = encodeFunctionData({
+      abi: spenderA.abi,
+      functionName: "pull",
+      args: [token.address, 100n],
+    });
+    const pullB = encodeFunctionData({
+      abi: spenderB.abi,
+      functionName: "pull",
+      args: [token.address, 250n],
+    });
+
+    const requirements = await discoverRequirements({
+      client: ctx.publicClient,
+      from: ctx.account.address,
+      calls: [
+        { to: spenderA.address, calldata: pullA },
+        { to: spenderB.address, calldata: pullB },
+      ],
+    });
+
+    expect(requirements.balances).toContainEqual({ token: token.address, amount: 350n });
+    expect(requirements.allowances).toEqual(
+      expect.arrayContaining([
+        { token: token.address, spender: spenderA.address, amount: 100n },
+        { token: token.address, spender: spenderB.address, amount: 250n },
+      ]),
+    );
+    expect(requirements.allowances).toHaveLength(2);
+  });
+
+  it("uses gross token outflow instead of net delta", async () => {
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy("RefundingSpender.sol", "RefundingSpender");
+    const pull = encodeFunctionData({
+      abi: spender.abi,
+      functionName: "pull",
+      args: [token.address, 100n],
+    });
+    const refund = encodeFunctionData({
+      abi: spender.abi,
+      functionName: "refund",
+      args: [token.address, 40n],
+    });
+
+    const requirements = await discoverRequirements({
+      client: ctx.publicClient,
+      from: ctx.account.address,
+      calls: [
+        { to: spender.address, calldata: pull },
+        { to: spender.address, calldata: refund },
+      ],
+    });
+
+    expect(requirements.balances).toContainEqual({ token: token.address, amount: 100n });
+  });
+
+  it("does not require allowance when the batch approves before pulling", async () => {
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy("Spender.sol", "Spender");
+    const approve = encodeFunctionData({
+      abi: token.abi,
+      functionName: "approve",
+      args: [spender.address, 400n],
+    });
+    const pull = encodeFunctionData({
+      abi: spender.abi,
+      functionName: "pull",
+      args: [token.address, 400n],
+    });
+
+    const requirements = await discoverRequirements({
+      client: ctx.publicClient,
+      from: ctx.account.address,
+      calls: [
+        { to: token.address, calldata: approve },
+        { to: spender.address, calldata: pull },
+      ],
+    });
+
+    expect(requirements.balances).toContainEqual({ token: token.address, amount: 400n });
+    expect(
+      requirements.allowances.some(
+        (allowance) => allowance.token === token.address && allowance.spender === spender.address,
+      ),
+    ).toBe(false);
+  });
+
+  it("infers standard allowance slots after one probe", async () => {
+    const events: SimulationDebugEvent[] = [];
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spenderA = await deploy("Spender.sol", "Spender");
+    const spenderB = await deploy("Spender.sol", "Spender");
+    const pullA = encodeFunctionData({
+      abi: spenderA.abi,
+      functionName: "pull",
+      args: [token.address, 100n],
+    });
+    const pullB = encodeFunctionData({
+      abi: spenderB.abi,
+      functionName: "pull",
+      args: [token.address, 250n],
+    });
+
+    await discoverRequirements({
+      client: ctx.publicClient,
+      from: ctx.account.address,
+      calls: [
+        { to: spenderA.address, calldata: pullA },
+        { to: spenderB.address, calldata: pullB },
+      ],
+      debug: (event) => events.push(event),
+    });
+
+    expect(
+      events.filter(
+        (event) => event.step === "allowanceSlot.accessList" && event.phase === "start",
+      ),
+    ).toHaveLength(1);
+    expect(events.some((event) => event.step === "allowanceSlot.computedVerify")).toBe(true);
+  });
+
+  it("falls back for non-standard allowance slots", async () => {
+    const events: SimulationDebugEvent[] = [];
+    const token = await deploy("NonStandardSlotToken.sol", "NonStandardSlotToken");
+    const spenderA = await deploy("Spender.sol", "Spender");
+    const spenderB = await deploy("Spender.sol", "Spender");
+    const pullA = encodeFunctionData({
+      abi: spenderA.abi,
+      functionName: "pull",
+      args: [token.address, 100n],
+    });
+    const pullB = encodeFunctionData({
+      abi: spenderB.abi,
+      functionName: "pull",
+      args: [token.address, 250n],
+    });
+
+    const requirements = await discoverRequirements({
+      client: ctx.publicClient,
+      from: ctx.account.address,
+      calls: [
+        { to: spenderA.address, calldata: pullA },
+        { to: spenderB.address, calldata: pullB },
+      ],
+      debug: (event) => events.push(event),
+    });
+
+    expect(
+      events.filter(
+        (event) => event.step === "allowanceSlot.accessList" && event.phase === "start",
+      ),
+    ).toHaveLength(2);
+    expect(requirements.allowances).toEqual(
+      expect.arrayContaining([
+        { token: token.address, spender: spenderA.address, amount: 100n },
+        { token: token.address, spender: spenderB.address, amount: 250n },
+      ]),
+    );
+  });
+
+  it("measures native value requirements", async () => {
+    const value = parseEther("1");
+    const requirements = await discoverRequirements({
+      client: ctx.publicClient,
+      from: ctx.account.address,
+      calls: [{ to: ctx.secondAccount.address, calldata: "0x", value }],
+    });
+
+    expect(requirements.status).toBe("success");
+    expect(requirements.native).toBe(value);
+  });
+
+  async function deploy(contractFile: string, contractName: string, args: readonly unknown[] = []) {
+    const contract = artifact(contractFile, contractName);
+    const hash = await ctx.walletClient.deployContract({
+      abi: contract.abi,
+      bytecode: contract.bytecode,
+      args,
+    });
+    const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash });
+    return {
+      abi: contract.abi,
+      address: getAddress(receipt.contractAddress!),
+    };
+  }
+});

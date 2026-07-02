@@ -1,8 +1,7 @@
 import type { Address, CallParameters, Hex, PublicClient, StateOverride } from "viem";
-import { encodeFunctionData } from "viem";
+import { encodeFunctionData, erc20Abi } from "viem";
 
 import type { AllowanceSlot, BalanceSlot, SimulationDebug } from "../types.js";
-import { erc20ProbeAbi } from "./abi.js";
 import { addressKey } from "./address.js";
 import { withRpcDebug } from "./debug.js";
 import { getCallData, uint256Hex } from "./hex.js";
@@ -21,7 +20,7 @@ export async function readBalanceOf(
   } & BlockOptions,
 ): Promise<bigint | undefined> {
   const data = encodeFunctionData({
-    abi: erc20ProbeAbi,
+    abi: erc20Abi,
     functionName: "balanceOf",
     args: [args.owner],
   });
@@ -53,7 +52,7 @@ export async function readAllowance(
   } & BlockOptions,
 ): Promise<bigint | undefined> {
   const data = encodeFunctionData({
-    abi: erc20ProbeAbi,
+    abi: erc20Abi,
     functionName: "allowance",
     args: [args.owner, args.spender],
   });
@@ -83,7 +82,7 @@ export async function discoverBalanceSlot(
   } & BlockOptions,
 ): Promise<BalanceSlot | undefined> {
   const data = encodeFunctionData({
-    abi: erc20ProbeAbi,
+    abi: erc20Abi,
     functionName: "balanceOf",
     args: [args.owner],
   });
@@ -139,7 +138,7 @@ export async function discoverAllowanceSlot(
   } & BlockOptions,
 ): Promise<AllowanceSlot | undefined> {
   const data = encodeFunctionData({
-    abi: erc20ProbeAbi,
+    abi: erc20Abi,
     functionName: "allowance",
     args: [args.owner, args.spender],
   });
