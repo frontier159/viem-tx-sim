@@ -50,7 +50,7 @@ export async function estimateAssetRequirements(
     });
   } catch (cause) {
     if (!isInsufficientFunds(cause)) throw cause;
-    candidateAddresses = [];
+    candidateAddresses = uniqueAddresses(calls.map((call) => call.to));
   }
   const recon = await runSimulator({
     client: args.client,
