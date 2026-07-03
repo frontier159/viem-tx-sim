@@ -14,9 +14,16 @@ import type {
   SimulationResult,
   TokenSlotOverride,
 } from "../types.js";
-import { StateOverrideUnsupportedError } from "../errors.js";
+import { InvalidSimulationInputError, StateOverrideUnsupportedError } from "../errors.js";
 import { txSimulatorRuntimeBytecode } from "../generated/txSimulatorBytecode.js";
-import { addressKey, getCallData, normalizeAddress, uint256Hex, uniqueAddresses } from "./data.js";
+import {
+  MAX_UINT256,
+  addressKey,
+  getCallData,
+  normalizeAddress,
+  uint256Hex,
+  uniqueAddresses,
+} from "./data.js";
 import type { RpcCallArgs } from "./rpc.js";
 import {
   blockOptionsSpread,
@@ -25,7 +32,6 @@ import {
   formatRpcError,
   withRpcDebug,
 } from "./rpc.js";
-import { OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
 
 type ProbeData = {
   observedTokens: Address[];
@@ -281,12 +287,17 @@ function tokenSlotOverridesToStateDiff(overrides: readonly TokenSlotOverride[]):
   const byAddress = new Map<string, MutableStateOverrideEntry>();
 
   for (const override of overrides) {
+    if (override.amount === MAX_UINT256) {
+      throw new InvalidSimulationInputError(
+        "tokenSlotOverrides amount must be below uint256 max: max-allowance skips ERC-20 decrements and max-balance overflows incoming transfers. Use OVERRIDE_TOKEN_AMOUNT.",
+      );
+    }
     const normalized = normalizeAddress(override.token);
     const key = addressKey(normalized);
     const entry = byAddress.get(key) ?? { address: normalized, stateDiff: [] };
     entry.stateDiff?.push({
       slot: override.slot,
-      value: uint256Hex(override.amount ?? OVERRIDE_TOKEN_AMOUNT),
+      value: uint256Hex(override.amount),
     });
     byAddress.set(key, entry);
   }

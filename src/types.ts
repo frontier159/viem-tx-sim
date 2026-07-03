@@ -44,17 +44,22 @@ type SimulationOptions = {
   debug?: SimulationDebug;
 };
 
-/** Verified ERC-20 balance mapping slot for one token and owner. */
-export type BalanceSlot = {
+/**
+ * Storage-slot override: the unit that flows from discovery methods into
+ * `simulate({ tokenSlotOverrides })`.
+ */
+export type TokenSlotOverride = {
+  /** Token contract whose storage should be overridden. */
   token: Address;
+  /** Storage slot to write. Usually discovered by `discoverBalanceSlots` or `discoverAllowanceSlots`. */
   slot: Hex;
+  /** Value written to the slot. Must be below uint256 max. */
+  amount: bigint;
 };
 
 /** Verified ERC-20 allowance mapping slot for one token, owner, and spender. */
-export type AllowanceSlot = {
-  token: Address;
+export type AllowanceSlot = TokenSlotOverride & {
   spender: Address;
-  slot: Hex;
 };
 
 /** Token/spender pair whose allowance slot should be discovered or reported unresolved. */
@@ -66,8 +71,12 @@ export type AllowanceSlotPair = {
 /** Result of balance-slot discovery. */
 export type BalanceSlotDiscovery = {
   /** Verified slots that can be passed to `simulate` as `tokenSlotOverrides`. */
-  slots: BalanceSlot[];
-  /** Tokens whose balance slot could not be found and sentinel-verified; their state was not forged. */
+  slots: TokenSlotOverride[];
+  /**
+   * Tokens the simulator could not `deal` in the Foundry sense: no storage slot could be
+   * sentinel-verified for writing hypothetical balances. Deltas for real holdings still come from
+   * `balanceOf`, including rebasing tokens.
+   */
   unresolved: Address[];
 };
 
@@ -75,7 +84,7 @@ export type BalanceSlotDiscovery = {
 export type AllowanceSlotDiscovery = {
   /** Verified slots that can be passed to `simulate` as `tokenSlotOverrides`. */
   slots: AllowanceSlot[];
-  /** Pairs whose allowance slot could not be found and sentinel-verified; their state was not forged. */
+  /** Pairs the simulator could not `deal` as allowances because no slot was sentinel-verified. */
   unresolved: AllowanceSlotPair[];
 };
 
@@ -83,16 +92,6 @@ export type AllowanceSlotDiscovery = {
 export type RevertError = {
   name: string;
   args: readonly unknown[];
-};
-
-/** Storage slot value to forge before running a simulation. */
-export type TokenSlotOverride = {
-  /** Token contract whose storage should be overridden. */
-  token: Address;
-  /** Storage slot to write. Usually discovered by `discoverBalanceSlots` or `discoverAllowanceSlots`. */
-  slot: Hex;
-  /** Value written to the slot before simulating. Defaults to `OVERRIDE_TOKEN_AMOUNT`. */
-  amount?: bigint;
 };
 
 /** Arguments for `TxSimulator.simulate`. */
@@ -168,9 +167,12 @@ type DiscoveredRequirementsBase = {
   slots: TokenSlotOverride[];
   /** Values the requirement probe could not verify or could not trust. */
   unresolved: {
-    /** Tokens whose balance slots could not be verified; their balances were not forged. */
+    /**
+     * Tokens the requirement probe could not `deal` in the Foundry sense: no balance slot could be
+     * sentinel-verified for writing hypothetical balances. Real-holding deltas are unaffected.
+     */
     balanceSlots: Address[];
-    /** Token/spender pairs whose allowance slots could not be verified; their allowances were not forged. */
+    /** Token/spender pairs the requirement probe could not `deal` as allowances. */
     allowanceSlots: AllowanceSlotPair[];
     /** Token/spender pairs measured but discarded as unreliable, usually because they exceeded gross outflow. */
     allowances: AllowanceSlotPair[];

@@ -36,7 +36,7 @@ export interface TxSimulator {
    *
    * This uses `eth_createAccessList` for candidate discovery and one `eth_call` with state
    * overrides that injects the simulator at `from`. It does not automatically forge balances or
-   * allowances; pass `tokenSlotOverrides` from the discovery methods when previewing view-only or
+   * allowances; discovery methods return ready-to-use `tokenSlotOverrides` for view-only or
    * unfunded accounts. Transaction reverts return `status: "reverted"` instead of throwing.
    *
    * @throws InvalidSimulationInputError when `calls` is empty.
@@ -58,8 +58,9 @@ export interface TxSimulator {
   /**
    * Discovers ERC-20 balance storage slots for tokens owned by `from`.
    *
-   * Each token is probed with RPC-only access lists and sentinel state overrides. Tokens whose slot
-   * cannot be found and verified are returned in `unresolved` rather than thrown.
+   * Each token is probed with RPC-only access lists and sentinel state overrides. Tokens the
+   * simulator cannot `deal` by verified storage write are returned in `unresolved` rather than
+   * thrown.
    *
    * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
    */
@@ -69,8 +70,8 @@ export interface TxSimulator {
    * Discovers ERC-20 allowance storage slots for token/spender pairs owned by `from`.
    *
    * Standard Solidity allowance layouts are inferred after one verified probe per token where
-   * possible; non-standard layouts fall back to per-pair probing. Pairs whose slot cannot be found
-   * and verified are returned in `unresolved` rather than thrown.
+   * possible; non-standard layouts fall back to per-pair probing. Pairs the simulator cannot `deal`
+   * by verified storage write are returned in `unresolved` rather than thrown.
    *
    * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
    */

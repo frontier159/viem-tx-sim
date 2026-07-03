@@ -6,12 +6,19 @@ import {
   parseEther,
   slice,
   zeroAddress,
+  zeroHash,
   type Abi,
   type Address,
   type Hex,
 } from "viem";
 
-import { TxSimulator, type SimulationResult, type SimulationDebugEvent } from "../src/index.js";
+import {
+  InvalidSimulationInputError,
+  OVERRIDE_TOKEN_AMOUNT,
+  TxSimulator,
+  type SimulationDebugEvent,
+  type SimulationResult,
+} from "../src/index.js";
 import { artifact } from "./helpers/artifacts.js";
 import { type AnvilTestContext, startAnvil } from "./helpers/anvil.js";
 
@@ -110,7 +117,11 @@ describe("viem-tx-sim", () => {
     });
 
     expect(allowanceDiscovery.slots).toContainEqual(
-      expect.objectContaining({ token: token.address, spender: spender.address }),
+      expect.objectContaining({
+        token: token.address,
+        spender: spender.address,
+        amount: OVERRIDE_TOKEN_AMOUNT,
+      }),
     );
     expect(allowanceDiscovery.unresolved).toEqual([]);
 
@@ -150,8 +161,16 @@ describe("viem-tx-sim", () => {
     });
 
     expect(allowanceDiscovery.slots).toEqual([
-      expect.objectContaining({ token: token.address, spender: spenderA.address }),
-      expect.objectContaining({ token: token.address, spender: spenderB.address }),
+      expect.objectContaining({
+        token: token.address,
+        spender: spenderA.address,
+        amount: OVERRIDE_TOKEN_AMOUNT,
+      }),
+      expect.objectContaining({
+        token: token.address,
+        spender: spenderB.address,
+        amount: OVERRIDE_TOKEN_AMOUNT,
+      }),
     ]);
     expect(allowanceDiscovery.unresolved).toEqual([]);
     expect(
@@ -191,7 +210,7 @@ describe("viem-tx-sim", () => {
     });
 
     expect(balanceDiscovery.slots).toContainEqual(
-      expect.objectContaining({ token: token.address }),
+      expect.objectContaining({ token: token.address, amount: OVERRIDE_TOKEN_AMOUNT }),
     );
     expect(balanceDiscovery.unresolved).toEqual([]);
 
@@ -225,7 +244,9 @@ describe("viem-tx-sim", () => {
       tokens: [token.address, ctx.secondAccount.address],
     });
 
-    expect(discovery.slots).toEqual([expect.objectContaining({ token: token.address })]);
+    expect(discovery.slots).toEqual([
+      expect.objectContaining({ token: token.address, amount: OVERRIDE_TOKEN_AMOUNT }),
+    ]);
     expect(discovery.unresolved).toEqual([ctx.secondAccount.address]);
   });
 
@@ -314,7 +335,7 @@ describe("viem-tx-sim", () => {
       tokens: [proxyToken.address],
     });
     expect(balanceDiscovery.slots).toContainEqual(
-      expect.objectContaining({ token: proxyToken.address }),
+      expect.objectContaining({ token: proxyToken.address, amount: OVERRIDE_TOKEN_AMOUNT }),
     );
     expect(balanceDiscovery.unresolved).toEqual([]);
 
@@ -366,6 +387,24 @@ describe("viem-tx-sim", () => {
 
     expect(result.status).toBe("success");
     expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -200n });
+  });
+
+  it("rejects max uint256 token slot override amounts", async () => {
+    const maxUint256 = (1n << 256n) - 1n;
+
+    await expect(
+      sim.simulate({
+        from: ctx.account.address,
+        calls: [{ to: ctx.secondAccount.address, data: "0x" }],
+        tokenSlotOverrides: [
+          {
+            token: ctx.secondAccount.address,
+            slot: zeroHash,
+            amount: maxUint256,
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(InvalidSimulationInputError);
   });
 
   it("decodes custom error reverts with per-call ABI", async () => {

@@ -11,7 +11,6 @@ export type {
   AllowanceSlotDiscovery,
   AllowanceSlotPair,
   AssetBalanceDelta,
-  BalanceSlot,
   BalanceSlotDiscovery,
   DiscoverAllowanceSlotsArgs,
   DiscoverBalanceSlotsArgs,

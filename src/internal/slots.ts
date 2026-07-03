@@ -3,17 +3,25 @@ import { encodeAbiParameters, keccak256 } from "viem";
 
 import { OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
 import type {
-  AllowanceSlot,
   AllowanceSlotDiscovery,
-  BalanceSlot,
   BalanceSlotDiscovery,
   DiscoverAllowanceSlotsArgs,
   DiscoverBalanceSlotsArgs,
+  TokenSlotOverride,
 } from "../types.js";
 import { addressKey, uint256Hex } from "./data.js";
 import { discoverAllowanceSlot, discoverBalanceSlot, readAllowance } from "./probes.js";
 import type { ClientArgs, RpcCallArgs } from "./rpc.js";
 import { blockOptionsSpread } from "./rpc.js";
+
+type SlotFact = {
+  token: Address;
+  slot: Hex;
+};
+
+type AllowanceSlotFact = SlotFact & {
+  spender: Address;
+};
 
 // Orchestration
 /** @internal Implements `TxSimulator.discoverBalanceSlots`. Prefer the instance API from the package root. */
@@ -34,7 +42,7 @@ export async function discoverBalanceSlots(
     ),
   );
   return {
-    slots: slots.filter((slot): slot is BalanceSlot => slot !== undefined),
+    slots: slots.filter(isDefined).map(withOverrideAmount),
     unresolved: args.tokens.filter((_, index) => slots[index] === undefined),
   };
 }
@@ -53,9 +61,17 @@ export async function discoverAllowanceSlots(
     ...blockOptionsSpread(args),
   });
   return {
-    slots: slots.filter((slot): slot is AllowanceSlot => slot !== undefined),
+    slots: slots.filter(isDefined).map(withOverrideAmount),
     unresolved: args.pairs.filter((_, index) => slots[index] === undefined),
   };
+}
+
+function isDefined<T>(value: T | undefined): value is T {
+  return value !== undefined;
+}
+
+function withOverrideAmount<T extends SlotFact>(slot: T): T & TokenSlotOverride {
+  return { ...slot, amount: OVERRIDE_TOKEN_AMOUNT };
 }
 
 // Inference internals
@@ -74,8 +90,8 @@ async function discoverAllowanceSlotsWithInference(
     pairs: readonly AllowancePair[];
     sentinel: bigint;
   },
-): Promise<(AllowanceSlot | undefined)[]> {
-  const slots: (AllowanceSlot | undefined)[] = Array.from({ length: args.pairs.length });
+): Promise<(AllowanceSlotFact | undefined)[]> {
+  const slots: (AllowanceSlotFact | undefined)[] = Array.from({ length: args.pairs.length });
   const groups = groupPairsByToken(args.pairs);
 
   await Promise.all(
@@ -128,7 +144,7 @@ async function probeAllowanceSlot(
     spender: Address;
     sentinel: bigint;
   },
-): Promise<AllowanceSlot | undefined> {
+): Promise<AllowanceSlotFact | undefined> {
   return discoverAllowanceSlot({
     client: args.client,
     token: args.token,
@@ -149,7 +165,7 @@ async function computeAllowanceSlot(
     baseSlot: bigint;
     sentinel: bigint;
   },
-): Promise<AllowanceSlot | undefined> {
+): Promise<AllowanceSlotFact | undefined> {
   const slot = allowanceSlotFor(args.from, args.spender, args.baseSlot);
   const allowance = await readAllowance({
     client: args.client,

@@ -1,12 +1,20 @@
 import type { Address, Hex, StateOverride } from "viem";
 import { encodeFunctionData, erc20Abi } from "viem";
 
-import type { AllowanceSlot, BalanceSlot } from "../types.js";
 import { addressKey } from "./data.js";
 import { withRpcDebug } from "./rpc.js";
 import { getCallData, uint256Hex } from "./data.js";
 import type { RpcCallArgs } from "./rpc.js";
 import { blockOptionsSpread, buildCallParameters, createAccessList } from "./rpc.js";
+
+type ProbedSlot = {
+  token: Address;
+  slot: Hex;
+};
+
+type ProbedAllowanceSlot = ProbedSlot & {
+  spender: Address;
+};
 
 async function readBalanceOf(
   args: RpcCallArgs & {
@@ -69,7 +77,7 @@ export async function discoverBalanceSlot(
     owner: Address;
     sentinel: bigint;
   },
-): Promise<BalanceSlot | undefined> {
+): Promise<ProbedSlot | undefined> {
   const data = encodeFunctionData({
     abi: erc20Abi,
     functionName: "balanceOf",
@@ -120,7 +128,7 @@ export async function discoverAllowanceSlot(
     spender: Address;
     sentinel: bigint;
   },
-): Promise<AllowanceSlot | undefined> {
+): Promise<ProbedAllowanceSlot | undefined> {
   const data = encodeFunctionData({
     abi: erc20Abi,
     functionName: "allowance",

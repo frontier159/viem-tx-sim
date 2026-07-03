@@ -3,13 +3,10 @@ import { decodeFunctionData, parseAbi } from "viem";
 
 import { InvalidSimulationInputError } from "../errors.js";
 import type {
-  AllowanceSlot,
   AllowanceSlotPair,
-  BalanceSlot,
   DiscoveredRequirements,
   DiscoverRequirementsArgs,
   SimulatedCall,
-  TokenSlotOverride,
 } from "../types.js";
 import { discoverAllowanceSlots, discoverBalanceSlots } from "./slots.js";
 import { addressKey, uniqueAddresses } from "./data.js";
@@ -86,7 +83,7 @@ export async function discoverRequirements(
     token: slot.token,
     spender: slot.spender,
   }));
-  const tokenSlotOverrides = [...balanceSlots, ...allowanceSlots].map(tokenSlotOverride);
+  const tokenSlotOverrides = [...balanceSlots, ...allowanceSlots];
   const measurement = await runSimulator({
     client: args.client,
     from: args.from,
@@ -116,7 +113,7 @@ export async function discoverRequirements(
       measurement.probeData.maxTokenOutflows,
     ),
     allowances: measuredAllowances.allowances,
-    slots: [...balanceSlots, ...allowanceSlots].map(tokenSlotOverride),
+    slots: tokenSlotOverrides,
     unresolved: {
       balanceSlots: balanceDiscovery.unresolved,
       allowanceSlots: allowanceDiscovery.unresolved,
@@ -240,8 +237,4 @@ function tokenOutflow(
 ): bigint {
   const index = candidates.findIndex((candidate) => addressKey(candidate) === addressKey(token));
   return index === -1 ? 0n : (maxTokenOutflows[index] ?? 0n);
-}
-
-function tokenSlotOverride(slot: BalanceSlot | AllowanceSlot): TokenSlotOverride {
-  return { token: slot.token, slot: slot.slot };
 }

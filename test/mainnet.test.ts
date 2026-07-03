@@ -11,9 +11,9 @@ import {
 import { mainnet } from "viem/chains";
 
 import {
+  OVERRIDE_TOKEN_AMOUNT,
   TxSimulator,
   type AllowanceSlot,
-  type BalanceSlot,
   type SimulationDebugEvent,
   type TokenSlotOverride,
 } from "../src/index.js";
@@ -30,18 +30,20 @@ const USDS_BALANCE_SLOTS = [
   {
     token: USDS,
     slot: "0xbc40fbf4394cd00f78fae9763b0c2c71b21ea442c42fdadc5b720537240ebac1",
+    amount: OVERRIDE_TOKEN_AMOUNT,
   },
-] satisfies readonly BalanceSlot[];
+] satisfies readonly TokenSlotOverride[];
 const USDS_ALLOWANCE_SLOTS = [
   {
     token: USDS,
     spender: SUSDS,
     slot: "0x4d4b9559ecfa1d479ac515558c3d16f6ba97c029b1b54e12e4d53fb06d957a3b",
+    amount: OVERRIDE_TOKEN_AMOUNT,
   },
 ] satisfies readonly AllowanceSlot[];
 const USDS_SLOT_OVERRIDES = [
   ...USDS_BALANCE_SLOTS,
-  ...USDS_ALLOWANCE_SLOTS.map((slot) => ({ token: slot.token, slot: slot.slot })),
+  ...USDS_ALLOWANCE_SLOTS,
 ] satisfies readonly TokenSlotOverride[];
 
 const mainnetDescribe = MAINNET_RPC_URL === undefined ? describe.skip : describe;

@@ -72,7 +72,7 @@ Deltas are raw `bigint` amounts in each token's own units, discovered from chain
 
 ## Forging balances and allowances
 
-Slot discovery is explicit and cacheable. Discover the slots you want to forge, then pass them into a single simulation run:
+Slot discovery is explicit and cacheable. Discovery returns ready-to-use `TokenSlotOverride[]` entries, so pass them into a single simulation run:
 
 ```ts
 import { TxSimulator } from "viem-tx-sim";
@@ -94,7 +94,7 @@ const result = await sim.simulate({
 });
 ```
 
-Balance slots are reusable per token/owner, and allowance slots are reusable per token/owner/spender for the block/state you trust. When an override omits `amount`, the library writes the exported `OVERRIDE_TOKEN_AMOUNT` sentinel, a non-max `10^50` value chosen so standard ERC-20 allowance decrements remain observable.
+Balance slots are reusable per token/owner, and allowance slots are reusable per token/owner/spender for the block/state you trust. Discovery pre-sets `amount` to the exported `OVERRIDE_TOKEN_AMOUNT` sentinel, a non-max `10^50` value chosen so standard ERC-20 allowance decrements remain observable. Handcrafted override amounts must be below `uint256.max`; max allowance skips decrements, and max balances can overflow on incoming transfers. Deltas for real holdings still work for rebasing tokens like stETH; only dealing hypothetical balances can fail, reported in `unresolved`.
 
 ## Discovering requirements (optional)
 
