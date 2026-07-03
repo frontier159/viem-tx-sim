@@ -16,8 +16,29 @@ jobs:
       - run: corepack enable
       - uses: foundry-rs/foundry-toolchain@v1
         with:
+          # Update to stable when a new release > v1.7.1 is out
+          # Anvil fork tests depend on https://github.com/foundry-rs/foundry/pull/14569
           version: nightly-7debd6d47628c5551837534aee507dbf552d5889
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
       - name: committed artifacts are fresh
-        run: git diff --exit-code -- dist src/generated
+        run: git diff --exit-code -- src/generated
+      - name: types resolve from the packed tarball
+        run: pnpm dlx @arethetypeswrong/cli --pack . --profile esm-only
+      - name: packed tarball smoke test
+        run: |
+          pnpm pack --out /tmp/vts.tgz
+          mkdir -p /tmp/vts-smoke && cd /tmp/vts-smoke
+          npm init -y > /dev/null
+          npm pkg set type=module > /dev/null
+          npm install /tmp/vts.tgz viem typescript @types/node > /dev/null
+          cat > smoke.ts <<'EOF'
+          import { TxSimulator, OVERRIDE_TOKEN_AMOUNT } from "viem-tx-sim";
+          import { createPublicClient, http } from "viem";
+          const sim = TxSimulator.create({ client: createPublicClient({ transport: http("http://127.0.0.1:1") }) });
+          const _check: typeof sim.simulate = sim.simulate;
+          if (OVERRIDE_TOKEN_AMOUNT !== 10n ** 50n) throw new Error("constant");
+          console.log("smoke ok", typeof _check);
+          EOF
+          npx tsc --strict --module node16 --moduleResolution node16 --target es2022 --skipLibCheck --noEmit smoke.ts
+          node --input-type=module -e "import('viem-tx-sim').then(m => { if (!m.TxSimulator?.create) throw new Error('bad export'); console.log('runtime ok'); })"

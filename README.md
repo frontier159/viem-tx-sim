@@ -4,20 +4,24 @@ RPC-only transaction simulation helpers for [viem](https://viem.sh) applications
 
 ## Motivation
 
-Credit to the [apoorv X thread](https://x.com/apoorveth/status/2041544070481449266), transcribed in [motivation.md](./docs/motivation.md).
+Credit to the [apoorv X thread](https://x.com/apoorveth/status/2041544070481449266), transcribed in [motivation.md](https://github.com/frontier159/viem-tx-sim/blob/main/docs/motivation.md).
 
 Every wallet shows "asset changes" before you sign. Most do it by sending your data to a centralized simulation API — a single point of failure and a privacy leak. viem-tx-sim makes the EVM do the work itself:
 
 1. `eth_createAccessList` dry-runs each call and returns every contract the transaction touches — those become candidate tokens, with no token lists or indexers.
 2. One `eth_call` with state overrides injects a never-deployed `TxSimulator` contract **at the user's own address** and executes the calls. Because the simulator runs as the user, `address(this)` and `msg.sender` are the real account, so balance reads, allowance checks, and `msg.sender`-gated logic behave exactly as they would in the real transaction. Batch calls run sequentially in one EVM context, so an approval in call 1 is visible to a swap in call 2.
 
-That is two RPC calls for a single-call transaction, or N + 1 calls for an N-call batch. Zero servers, zero trust assumptions. See [docs/motivation.md](./docs/motivation.md) for the design's origin story, including how Permit2's ERC-1271 path and proxy-token storage are handled.
+That is two RPC calls for a single-call transaction, or N + 1 calls for an N-call batch. Zero servers, zero trust assumptions. See [docs/motivation.md](https://github.com/frontier159/viem-tx-sim/blob/main/docs/motivation.md) for the design's origin story, including how Permit2's ERC-1271 path and proxy-token storage are handled.
 
 ## Getting started
 
 ```sh
 pnpm add viem-tx-sim viem
 ```
+
+This package is ESM-only (no CommonJS build) and requires Node 20 or newer. `viem` is a peer dependency, so install it alongside `viem-tx-sim` as shown above.
+
+Pre-release consumers can install from git with `pnpm add github:frontier159/viem-tx-sim`; the `prepare` script builds `dist/` with `tsc` from committed contract bytecode, so Foundry is not needed at install time.
 
 Simulate depositing 1,000 USDS into the sUSDS ERC-4626 vault on mainnet — an approve followed by a deposit, as one atomic batch:
 

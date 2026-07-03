@@ -2,14 +2,31 @@
   "name": "viem-tx-sim",
   "version": "0.1.0",
   "description": "RPC-only transaction simulation helpers for viem applications.",
+  "keywords": [
+    "eth_call",
+    "ethereum",
+    "simulation",
+    "state-override",
+    "transaction-preview",
+    "viem",
+    "wallet"
+  ],
+  "homepage": "https://github.com/frontier159/viem-tx-sim#readme",
+  "bugs": {
+    "url": "https://github.com/frontier159/viem-tx-sim/issues"
+  },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frontier159/viem-tx-sim.git"
+  },
   "files": [
     "dist",
-    "contracts/TxSimulator.sol",
-    "docs/motivation.md",
-    "docs/assets/motivation"
+    "src",
+    "contracts/TxSimulator.sol"
   ],
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -19,27 +36,34 @@
     }
   },
   "scripts": {
-    "build": "pnpm build:contracts && tsc -p tsconfig.build.json",
+    "build": "pnpm build:contracts && pnpm build:ts",
     "build:contracts": "forge build && node scripts/generate-txsim-bytecode.mjs",
+    "build:ts": "tsc -p tsconfig.build.json",
     "fmt": "oxfmt package.json .oxlintrc.json .oxfmtrc.json tsconfig.json tsconfig.build.json vitest.config.ts src test scripts",
     "fmt:check": "oxfmt --check package.json .oxlintrc.json .oxfmtrc.json tsconfig.json tsconfig.build.json vitest.config.ts src test scripts",
     "lint": "oxlint && oxfmt --check package.json .oxlintrc.json .oxfmtrc.json tsconfig.json tsconfig.build.json vitest.config.ts src test scripts",
     "lint:fix": "oxlint --fix && oxfmt package.json .oxlintrc.json .oxfmtrc.json tsconfig.json tsconfig.build.json vitest.config.ts src test scripts",
+    "prepare": "pnpm build:ts",
+    "prepublishOnly": "pnpm build:ts",
     "test": "pnpm build:contracts && vitest run",
     "test:debug": "VIEM_TX_SIM_DEBUG_RPC=1 pnpm test",
     "test:mainnet": "pnpm build:contracts && vitest run test/mainnet.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "verify": "pnpm lint && pnpm typecheck && pnpm build && pnpm test"
   },
-  "dependencies": {
-    "viem": "^2.54.1"
-  },
   "devDependencies": {
     "@types/node": "^20.19.0",
     "oxfmt": "^0.57.0",
     "oxlint": "^1.72.0",
     "typescript": "^5.5.4",
+    "viem": "^2.54.1",
     "vitest": "^2.1.9"
+  },
+  "peerDependencies": {
+    "viem": "2.x"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "packageManager": "pnpm@10.18.3",
   "pnpm": {
