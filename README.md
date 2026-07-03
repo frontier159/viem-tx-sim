@@ -8,10 +8,10 @@ Credit to the [apoorv X thread](https://x.com/apoorveth/status/20415440704814492
 
 Every wallet shows "asset changes" before you sign. Most do it by sending your data to a centralized simulation API — a single point of failure and a privacy leak. viem-tx-sim makes the EVM do the work itself:
 
-1. `eth_createAccessList` dry-runs each call and returns every contract the transaction touches — those become candidate tokens, with no token lists or indexers.
-2. One `eth_call` with state overrides injects a never-deployed `TxSimulator` contract **at the user's own address** and executes the calls. Because the simulator runs as the user, `address(this)` and `msg.sender` are the real account, so balance reads, allowance checks, and `msg.sender`-gated logic behave exactly as they would in the real transaction. Batch calls run sequentially in one EVM context, so an approval in call 1 is visible to a swap in call 2.
+1. For wallet-style previews, `sim.balanceQueries.forUser()` can dry-run each call with `eth_createAccessList` and filter touched contracts into token balance queries, with no token lists or indexers.
+2. `sim.simulate()` takes explicit balance queries and performs one `eth_call` with state overrides, injecting a never-deployed `TxSimulator` contract **at the user's own address**. Because the simulator runs as the user, `address(this)` and `msg.sender` are the real account, so balance reads, allowance checks, and `msg.sender`-gated logic behave exactly as they would in the real transaction. Batch calls run sequentially in one EVM context, so an approval in call 1 is visible to a swap in call 2.
 
-That is two RPC calls for a single-call transaction, or N + 1 calls for an N-call batch. Zero servers, zero trust assumptions. See [docs/motivation.md](https://github.com/frontier159/viem-tx-sim/blob/main/docs/motivation.md) for the design's origin story, including how Permit2's ERC-1271 path and proxy-token storage are handled.
+The core simulation is one RPC call when you already know what to observe. The wallet discovery flow is N access lists + one token-filter call + one simulation for an N-call batch. Zero servers, zero trust assumptions. See [docs/motivation.md](https://github.com/frontier159/viem-tx-sim/blob/main/docs/motivation.md) for the design's origin story, including how Permit2's ERC-1271 path and proxy-token storage are handled.
 
 ## Getting started
 
@@ -39,39 +39,58 @@ const sim = TxSimulator.create({ client, gas: DEFAULT_SIMULATION_GAS_LIMIT });
 const user = "0xYourAddress"; // no key or signing involved — any address can be simulated
 const assets = parseUnits("1000", 18);
 
+const calls = [
+  {
+    to: USDS,
+    data: encodeFunctionData({
+      abi: parseAbi(["function approve(address spender, uint256 amount) returns (bool)"]),
+      functionName: "approve",
+      args: [SUSDS, assets],
+    }),
+  },
+  {
+    to: SUSDS,
+    data: encodeFunctionData({
+      abi: parseAbi(["function deposit(uint256 assets, address receiver) returns (uint256 shares)"]),
+      functionName: "deposit",
+      args: [assets, user],
+    }),
+  },
+];
+const balanceQueries = await sim.balanceQueries.forUser({ from: user, calls });
 const result = await sim.simulate({
   from: user,
-  calls: [
-    {
-      to: USDS,
-      data: encodeFunctionData({
-        abi: parseAbi(["function approve(address spender, uint256 amount) returns (bool)"]),
-        functionName: "approve",
-        args: [SUSDS, assets],
-      }),
-    },
-    {
-      to: SUSDS,
-      data: encodeFunctionData({
-        abi: parseAbi(["function deposit(uint256 assets, address receiver) returns (uint256 shares)"]),
-        functionName: "deposit",
-        args: [assets, user],
-      }),
-    },
-  ],
+  calls,
+  balanceQueries,
 });
 
 console.log(result.status); // "success"
-console.log(result.assetBalanceDeltas);
+console.log(result.balanceDeltas);
 // [
-//   { asset: "0xdC03...384F", delta: -1000000000000000000000n }, // 1,000 USDS out
-//   { asset: "0xa393...7fbD", delta: 9xx...n },                  // sUSDS shares in
+//   { asset: "native", account: user, before: 1n..., after: 1n..., delta: 0n },
+//   { asset: "0xdC03...384F", account: user, before: 1000n..., after: 0n, delta: -1000n... },
+//   { asset: "0xa393...7fbD", account: user, before: 0n, after: 9xx...n, delta: 9xx...n },
 // ]
 ```
 
-Deltas are raw `bigint` amounts in each token's own units, observed from chain state alone. A revert is returned as `status: "reverted"`, never thrown; checking `status` gives typed access to `revertData` and `failingCallIndex`.
+`balanceDeltas` mirror your `balanceQueries` in order, including zero deltas, with raw `bigint` amounts in each asset's own units. A revert is returned as `status: "reverted"`, never thrown; checking `status` gives typed access to `revertData` and `failingCallIndex`.
 
-`sim.simulate()` runs against the account's real balances and does not retry or forge state by itself. If `user` doesn't actually hold 1,000 USDS (say you're previewing for a view-only address), prepare and pass a balance override — see the next section. `DEFAULT_SIMULATION_GAS_LIMIT` is exported for callers that want to pass or display the default 16M simulation gas budget.
+`sim.simulate()` observes only the balances you ask for and does not retry or forge state by itself. If `user` doesn't actually hold 1,000 USDS (say you're previewing for a view-only address), prepare and pass a balance override — see the next section. Query the tokens you forge if you want to observe them. `DEFAULT_SIMULATION_GAS_LIMIT` is exported for callers that want to pass or display the default 16M simulation gas budget.
+
+If your dapp already knows what it needs to inspect, skip wallet discovery and pass explicit queries. This can observe any account, not just `from`:
+
+```ts
+const result = await sim.simulate({
+  from: user,
+  calls: partialBundle,
+  balanceQueries: [{ asset: flashToken, account: pluginAddress }],
+});
+const leftover = result.balanceDeltas.find(
+  (delta) => delta.asset === flashToken && delta.account === pluginAddress,
+)?.after;
+```
+
+For approvals, either include an `approve` / `permit` call in `calls` so later calls see it, or prepare allowance overrides when you need to simulate already-approved state without sending an approval call.
 
 ## Preparing balance and allowance overrides
 
@@ -93,6 +112,7 @@ const allowanceOverrides = await sim.prepareAllowanceOverrides({
 const result = await sim.simulate({
   from,
   calls: [{ to, data }],
+  balanceQueries: [{ asset: token, account: from }],
   tokenSlotOverrides: [...balanceOverrides.slots, ...allowanceOverrides.slots],
 });
 ```
@@ -115,6 +135,7 @@ const requirements = await sim.estimateAssetRequirements({ from, calls });
 const result = await sim.simulate({
   from,
   calls,
+  balanceQueries: await sim.balanceQueries.forUser({ from, calls }),
   tokenSlotOverrides: requirements.slots,
 });
 ```
@@ -130,6 +151,7 @@ const sim = TxSimulator.create({ client });
 const result = await sim.simulate({
   from,
   calls: [{ to, data, value: 0n }],
+  balanceQueries: [],
   debug: true,
 });
 ```
@@ -140,6 +162,7 @@ Or pass a callback to collect structured events:
 await sim.simulate({
   from,
   calls: [{ to, data }],
+  balanceQueries: [],
   debug: (event) => {
     console.debug(event.method, event.step, event.phase, event.durationMs);
   },
@@ -175,9 +198,9 @@ Situations the simulation does not cover, or where the preview can differ from r
 
 **Asset coverage is native + `balanceOf(address)`.** Deltas track ETH and anything answering ERC-20-style `balanceOf` (an ERC-721 shows up as a count delta, without token IDs). ERC-1155 balances (`balanceOf(address,uint256)`) are not tracked. Tokens whose balance is computed rather than stored in one slot per holder (rebasing/share-based tokens like stETH) cannot be forged — override preparation verifies slots before writing and reports them in the `unresolved` list.
 
-**Candidate discovery follows the dry run.** Token candidates come from `eth_createAccessList` on the *unforged* calls; if that dry run reverts early, contracts that would only be touched later are not discovered, and their deltas are missed. Forging (or `estimateAssetRequirements()`, which measures after forging) avoids most of this.
+**Wallet discovery follows the dry run.** `sim.balanceQueries.forUser()` token candidates come from `eth_createAccessList` on the *unforged* calls; if that dry run reverts early, contracts that would only be touched later are not discovered. Explicit `balanceQueries` avoid this when your app already knows the assets or accounts to observe.
 
-**RPC provider requirements.** The provider must support `eth_createAccessList` (including returning the access list for reverting calls) and `eth_call` with state overrides. Missing support surfaces as `AccessListUnsupportedError` / `StateOverrideUnsupportedError`.
+**RPC provider requirements.** `sim.simulate()` requires `eth_call` with state overrides. `sim.balanceQueries.forUser()`, override preparation, and asset-requirement estimation also require `eth_createAccessList` (including returning the access list for reverting calls). Missing support surfaces as `AccessListUnsupportedError` / `StateOverrideUnsupportedError`.
 
 **Not a gas estimator.** The simulation runs under `DEFAULT_SIMULATION_GAS_LIMIT` by default and the injected code changes gas accounting; use `eth_estimateGas` on the real transaction for gas.
 
@@ -225,4 +248,4 @@ Set `MAINNET_BLOCK_NUMBER` to override the pinned default block.
 
 ## Scope
 
-V1 returns raw balance deltas only. Token metadata, token lists, indexers, centralized simulation APIs, approval UX, and price enrichment are intentionally out of scope.
+V1 returns explicit raw balance observations only. Token metadata, token lists, indexers, centralized simulation APIs, approval UX, and price enrichment are intentionally out of scope.

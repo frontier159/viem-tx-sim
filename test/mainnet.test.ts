@@ -78,12 +78,15 @@ mainnetDescribe("mainnet RPC integration", () => {
       from: ANVIL_ACCOUNT,
       calls: [{ to: USDC, data }],
       blockNumber,
+      balanceQueries: [{ asset: USDC, account: ANVIL_ACCOUNT }],
       tokenSlotOverrides: balanceOverrides.slots,
       debug: (event) => events.push(event),
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({ asset: USDC, delta: -1n });
+    expect(result.balanceDeltas).toEqual([
+      expect.objectContaining({ asset: USDC, account: ANVIL_ACCOUNT, delta: -1n }),
+    ]);
     expect(events).toContainEqual(
       expect.objectContaining({
         phase: "success",
@@ -158,18 +161,26 @@ mainnetDescribe("mainnet RPC integration", () => {
       from: ANVIL_ACCOUNT,
       calls: [{ to: SUSDS, data: usdsDepositCalldata() }],
       blockNumber: mainnetBlockNumber(),
+      balanceQueries: [
+        { asset: USDS, account: ANVIL_ACCOUNT },
+        { asset: SUSDS, account: ANVIL_ACCOUNT },
+      ],
       tokenSlotOverrides: USDS_SLOT_OVERRIDES,
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({
+    expect(result.balanceDeltas).toContainEqual({
       asset: USDS,
+      account: ANVIL_ACCOUNT,
       delta: -USDS_DEPOSIT_ASSETS,
+      before: OVERRIDE_TOKEN_AMOUNT,
+      after: OVERRIDE_TOKEN_AMOUNT - USDS_DEPOSIT_ASSETS,
     });
-    expect(result.assetBalanceDeltas).toEqual(
+    expect(result.balanceDeltas).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           asset: SUSDS,
+          account: ANVIL_ACCOUNT,
         }),
       ]),
     );

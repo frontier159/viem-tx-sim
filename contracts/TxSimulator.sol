@@ -21,6 +21,11 @@ contract TxSimulator is IERC1271Like {
         address spender;
     }
 
+    struct BalanceProbe {
+        address token;
+        address account;
+    }
+
     struct SimulationResult {
         bool success;
         uint256 failingCallIndex;
@@ -32,6 +37,9 @@ contract TxSimulator is IERC1271Like {
         uint256[] maxTokenOutflows;
         uint256 maxNativeOutflow;
         uint256[] allowanceCheckpoints;
+        uint256[] balanceBefore;
+        uint256[] balanceAfter;
+        bool[] balanceProbeOk;
     }
 
     struct TokenState {
@@ -49,12 +57,20 @@ contract TxSimulator is IERC1271Like {
         uint256 stride;
     }
 
-    function simulate(SimulatedCall[] calldata calls, address[] calldata candidates, AllowanceProbe[] calldata probes)
-        external
-        returns (SimulationResult memory result)
-    {
+    function simulate(
+        SimulatedCall[] calldata calls,
+        address[] calldata candidates,
+        AllowanceProbe[] calldata probes,
+        BalanceProbe[] calldata balanceProbes
+    ) external returns (SimulationResult memory result) {
         uint256 nativeBefore = address(this).balance;
         TokenState memory tokenState = _snapshotTokens(candidates);
+        result.balanceBefore = new uint256[](balanceProbes.length);
+        result.balanceAfter = new uint256[](balanceProbes.length);
+        result.balanceProbeOk = new bool[](balanceProbes.length);
+        if (balanceProbes.length > 0) {
+            _snapshotBalanceProbes(balanceProbes, result);
+        }
 
         result.allowanceCheckpoints = new uint256[](probes.length * (calls.length + 1));
         ExecutionState memory executionState = ExecutionState({
@@ -71,6 +87,9 @@ contract TxSimulator is IERC1271Like {
         result.observedTokens = _trimAddresses(tokenState.observedScratch, tokenState.observedCount);
         result.maxNativeOutflow = nativeBefore >= nativeMin ? nativeBefore - nativeMin : 0;
         _writeTokenResults(candidates, tokenState, result);
+        if (balanceProbes.length > 0) {
+            _writeBalanceProbeResults(balanceProbes, result);
+        }
     }
 
     function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4) {
@@ -142,6 +161,28 @@ contract TxSimulator is IERC1271Like {
 
         result.deltaTokens = _trimAddresses(deltaTokensScratch, deltaCount);
         result.tokenDeltas = _trimInts(tokenDeltasScratch, deltaCount);
+    }
+
+    function _snapshotBalanceProbes(BalanceProbe[] calldata balanceProbes, SimulationResult memory result)
+        internal
+        view
+    {
+        for (uint256 i = 0; i < balanceProbes.length; ++i) {
+            (bool ok, uint256 balance) = _readBalanceProbe(balanceProbes[i]);
+            result.balanceProbeOk[i] = ok;
+            result.balanceBefore[i] = balance;
+        }
+    }
+
+    function _writeBalanceProbeResults(BalanceProbe[] calldata balanceProbes, SimulationResult memory result)
+        internal
+        view
+    {
+        for (uint256 i = 0; i < balanceProbes.length; ++i) {
+            (bool ok, uint256 balance) = _readBalanceProbe(balanceProbes[i]);
+            result.balanceProbeOk[i] = result.balanceProbeOk[i] && ok;
+            result.balanceAfter[i] = balance;
+        }
     }
 
     function _executeCalls(
@@ -228,6 +269,15 @@ contract TxSimulator is IERC1271Like {
         if (!success || data.length < 32) return (ok, balance);
         ok = success;
         balance = abi.decode(data, (uint256));
+    }
+
+    function _readBalanceProbe(BalanceProbe calldata probe) internal view returns (bool ok, uint256 balance) {
+        if (probe.token == address(0)) {
+            ok = true;
+            balance = probe.account.balance;
+            return (ok, balance);
+        }
+        return _tryBalanceOf(probe.token, probe.account);
     }
 
     function _tryAllowance(address token, address owner, address spender)

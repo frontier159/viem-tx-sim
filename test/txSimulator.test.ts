@@ -20,10 +20,13 @@ describe("TxSimulator", () => {
     const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: ctx.secondAccount.address, data: "0x", value: parseEther("1") }],
+      balanceQueries: [{ asset: "native", account: ctx.account.address }],
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({ asset: "native", delta: -parseEther("1") });
+    expect(result.balanceDeltas).toContainEqual(
+      expect.objectContaining({ asset: "native", delta: -parseEther("1") }),
+    );
   });
 
   it("uses the bound debug default", async () => {
@@ -36,6 +39,7 @@ describe("TxSimulator", () => {
     await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: ctx.secondAccount.address, data: "0x", value: parseEther("1") }],
+      balanceQueries: [],
     });
 
     expect(events.some((event) => event.step === "txSimulator.simulate")).toBe(true);
@@ -52,6 +56,7 @@ describe("TxSimulator", () => {
     await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: ctx.secondAccount.address, data: "0x", value: parseEther("1") }],
+      balanceQueries: [],
       debug: (event) => callEvents.push(event),
     });
 
@@ -71,6 +76,7 @@ describe("TxSimulator", () => {
     const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: ctx.secondAccount.address, data: "0x", value: parseEther("1") }],
+      balanceQueries: [],
     });
 
     expect(result.status).toBe("success");
@@ -83,7 +89,8 @@ describe("TxSimulator", () => {
 });
 
 const fake: TxSimulator = {
-  simulate: async () => ({ status: "success", assetBalanceDeltas: [] }),
+  simulate: async () => ({ status: "success", balanceDeltas: [], unresolved: [] }),
+  balanceQueries: { forUser: async () => [] },
   prepareBalanceOverrides: async () => ({ slots: [], unresolved: [] }),
   prepareAllowanceOverrides: async () => ({ slots: [], unresolved: [] }),
   estimateAssetRequirements: async () => ({

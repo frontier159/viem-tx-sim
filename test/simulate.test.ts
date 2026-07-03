@@ -16,6 +16,7 @@ import {
   InvalidSimulationInputError,
   OVERRIDE_TOKEN_AMOUNT,
   TxSimulator,
+  type BalanceQuery,
   type SimulationDebugEvent,
   type SimulationResult,
 } from "../src/index.js";
@@ -36,13 +37,25 @@ describe("viem-tx-sim", () => {
   });
 
   it("reports native value deltas", async () => {
+    const value = parseEther("1");
+    const before = await ctx.publicClient.getBalance({ address: ctx.account.address });
     const result = await sim.simulate({
       from: ctx.account.address,
-      calls: [{ to: ctx.secondAccount.address, data: "0x", value: parseEther("1") }],
+      calls: [{ to: ctx.secondAccount.address, data: "0x", value }],
+      balanceQueries: [{ asset: "native", account: ctx.account.address }],
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({ asset: "native", delta: -parseEther("1") });
+    expect(result.balanceDeltas).toEqual([
+      {
+        asset: "native",
+        account: ctx.account.address,
+        before,
+        after: before - value,
+        delta: -value,
+      },
+    ]);
+    expect(result.unresolved).toEqual([]);
   });
 
   it("emits debug events for simulator RPC calls", async () => {
@@ -50,17 +63,17 @@ describe("viem-tx-sim", () => {
     const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: ctx.secondAccount.address, data: "0x", value: parseEther("1") }],
+      balanceQueries: [],
       debug: (event) => events.push(event),
     });
 
     expect(result.status).toBe("success");
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        phase: "success",
-        method: "eth_createAccessList",
-        step: "candidateDiscovery.accessList",
-      }),
-    );
+    expect(
+      events.filter((event) => event.method === "eth_createAccessList" && event.phase === "start"),
+    ).toHaveLength(0);
+    expect(
+      events.filter((event) => event.step === "txSimulator.simulate" && event.phase === "start"),
+    ).toHaveLength(1);
     expect(events).toContainEqual(
       expect.objectContaining({
         phase: "success",
@@ -70,7 +83,67 @@ describe("viem-tx-sim", () => {
     );
   });
 
-  it("reports ERC-20 balance deltas and filters non-token candidates", async () => {
+  it("mirrors balance queries including zero deltas", async () => {
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    await write(token, "mint", [ctx.account.address, 1_000n]);
+
+    const data = encodeFunctionData({
+      abi: token.abi,
+      functionName: "transfer",
+      args: [ctx.secondAccount.address, 250n],
+    });
+    const untouched = token.address;
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: token.address, data }],
+      balanceQueries: [
+        { asset: token.address, account: ctx.account.address },
+        { asset: token.address, account: ctx.secondAccount.address },
+        { asset: token.address, account: untouched },
+      ],
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.balanceDeltas).toEqual([
+      {
+        asset: token.address,
+        account: ctx.account.address,
+        before: 1_000n,
+        after: 750n,
+        delta: -250n,
+      },
+      {
+        asset: token.address,
+        account: ctx.secondAccount.address,
+        before: 0n,
+        after: 250n,
+        delta: 250n,
+      },
+      {
+        asset: token.address,
+        account: untouched,
+        before: 0n,
+        after: 0n,
+        delta: 0n,
+      },
+    ]);
+    expect(result.unresolved).toEqual([]);
+  });
+
+  it("reports unresolved balance queries", async () => {
+    const query = { asset: ctx.secondAccount.address, account: ctx.account.address };
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: ctx.secondAccount.address, data: "0x" }],
+      balanceQueries: [query],
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.balanceDeltas).toEqual([]);
+    expect(result.unresolved).toEqual([query]);
+  });
+
+  it("reports ERC-20 balance deltas", async () => {
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     await write(token, "mint", [ctx.account.address, 1_000n]);
 
@@ -82,10 +155,17 @@ describe("viem-tx-sim", () => {
     const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: token.address, data }],
+      balanceQueries: tokenQueries(token.address),
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -250n });
+    expect(balanceDelta(result, token.address)).toEqual({
+      asset: token.address,
+      account: ctx.account.address,
+      before: 1_000n,
+      after: 750n,
+      delta: -250n,
+    });
   });
 
   it("supports safe NFT receipt at the injected account", async () => {
@@ -99,13 +179,59 @@ describe("viem-tx-sim", () => {
     const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: nft.address, data }],
+      balanceQueries: tokenQueries(nft.address),
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({ asset: nft.address, delta: 1n });
+    expect(balanceDelta(result, nft.address)).toEqual({
+      asset: nft.address,
+      account: ctx.account.address,
+      before: 0n,
+      after: 1n,
+      delta: 1n,
+    });
   });
 
-  it("discovers allowance slots for token outflow", async () => {
+  it("observes arbitrary accounts", async () => {
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy("Spender.sol", "Spender");
+    await write(token, "mint", [ctx.account.address, 1_000n]);
+    await write(token, "approve", [spender.address, 300n]);
+
+    const data = encodeFunctionData({
+      abi: spender.abi,
+      functionName: "pull",
+      args: [token.address, 300n],
+    });
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: spender.address, data }],
+      balanceQueries: [
+        { asset: token.address, account: ctx.account.address },
+        { asset: token.address, account: spender.address },
+      ],
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.balanceDeltas).toEqual([
+      {
+        asset: token.address,
+        account: ctx.account.address,
+        before: 1_000n,
+        after: 700n,
+        delta: -300n,
+      },
+      {
+        asset: token.address,
+        account: spender.address,
+        before: 0n,
+        after: 300n,
+        delta: 300n,
+      },
+    ]);
+  });
+
+  it("prepares allowance slots for token outflow", async () => {
     const events: SimulationDebugEvent[] = [];
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const spender = await deploy("Spender.sol", "Spender");
@@ -133,12 +259,19 @@ describe("viem-tx-sim", () => {
     const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: spender.address, data }],
+      balanceQueries: tokenQueries(token.address),
       tokenSlotOverrides: allowanceOverrides.slots,
       debug: (event) => events.push(event),
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -321n });
+    expect(balanceDelta(result, token.address)).toEqual({
+      asset: token.address,
+      account: ctx.account.address,
+      before: 1_000n,
+      after: 679n,
+      delta: -321n,
+    });
     expect(
       events.filter((event) => event.step === "txSimulator.simulate" && event.phase === "start"),
     ).toHaveLength(1);
@@ -181,7 +314,8 @@ describe("viem-tx-sim", () => {
     expect(events.some((event) => event.step === "allowanceSlot.computedVerify")).toBe(true);
   });
 
-  it("discovers nested token dependencies from the access list", async () => {
+  it("discovers wallet balance queries from the access list", async () => {
+    const events: SimulationDebugEvent[] = [];
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const spender = await deploy("StoredTokenSpender.sol", "StoredTokenSpender", [token.address]);
     await write(token, "mint", [ctx.account.address, 1_000n]);
@@ -192,13 +326,43 @@ describe("viem-tx-sim", () => {
       functionName: "pull",
       args: [123n],
     });
+    const balanceQueries = await sim.balanceQueries.forUser({
+      from: ctx.account.address,
+      calls: [{ to: spender.address, data }],
+      debug: (event) => events.push(event),
+    });
     const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: spender.address, data }],
+      balanceQueries,
+      debug: (event) => events.push(event),
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -123n });
+    expect(balanceQueries).toEqual([
+      { asset: "native", account: ctx.account.address },
+      { asset: token.address, account: ctx.account.address },
+    ]);
+    expect(balanceDelta(result, token.address)).toEqual({
+      asset: token.address,
+      account: ctx.account.address,
+      before: 1_000n,
+      after: 877n,
+      delta: -123n,
+    });
+    expect(
+      events.filter(
+        (event) => event.step === "candidateDiscovery.accessList" && event.phase === "start",
+      ),
+    ).toHaveLength(1);
+    expect(
+      events.filter(
+        (event) => event.step === "balanceQueries.tokenFilter" && event.phase === "start",
+      ),
+    ).toHaveLength(1);
+    expect(
+      events.filter((event) => event.step === "txSimulator.simulate" && event.phase === "start"),
+    ).toHaveLength(1);
   });
 
   it("uses caller-supplied balance storage overrides for view-only token balances", async () => {
@@ -230,11 +394,18 @@ describe("viem-tx-sim", () => {
         { to: token.address, data: approve },
         { to: spender.address, data: pull },
       ],
+      balanceQueries: tokenQueries(token.address),
       tokenSlotOverrides: balanceOverrides.slots,
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -500n });
+    expect(balanceDelta(result, token.address)).toEqual({
+      asset: token.address,
+      account: ctx.account.address,
+      before: OVERRIDE_TOKEN_AMOUNT,
+      after: OVERRIDE_TOKEN_AMOUNT - 500n,
+      delta: -500n,
+    });
   });
 
   it("reports unresolved balance slots", async () => {
@@ -271,10 +442,17 @@ describe("viem-tx-sim", () => {
         { to: token.address, data: approve },
         { to: spender.address, data: pull },
       ],
+      balanceQueries: tokenQueries(token.address),
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -400n });
+    expect(balanceDelta(result, token.address)).toEqual({
+      asset: token.address,
+      account: ctx.account.address,
+      before: 1_000n,
+      after: 600n,
+      delta: -400n,
+    });
   });
 
   it("supports Permit2-style ERC-1271 signature checks caused by code injection", async () => {
@@ -300,10 +478,17 @@ describe("viem-tx-sim", () => {
         { to: token.address, data: approve },
         { to: permit2.address, data: pull },
       ],
+      balanceQueries: tokenQueries(token.address),
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -123n });
+    expect(balanceDelta(result, token.address)).toEqual({
+      asset: token.address,
+      account: ctx.account.address,
+      before: 1_000n,
+      after: 877n,
+      delta: -123n,
+    });
   });
 
   it("verifies proxy token storage slots before overriding balances", async () => {
@@ -355,11 +540,18 @@ describe("viem-tx-sim", () => {
         { to: proxyToken.address, data: approve },
         { to: spender.address, data: pull },
       ],
+      balanceQueries: tokenQueries(proxyToken.address),
       tokenSlotOverrides: balanceOverrides.slots,
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({ asset: proxyToken.address, delta: -77n });
+    expect(balanceDelta(result, proxyToken.address)).toEqual({
+      asset: proxyToken.address,
+      account: ctx.account.address,
+      before: OVERRIDE_TOKEN_AMOUNT,
+      after: OVERRIDE_TOKEN_AMOUNT - 77n,
+      delta: -77n,
+    });
   });
 
   it("combines balance and allowance overrides", async () => {
@@ -382,11 +574,18 @@ describe("viem-tx-sim", () => {
     const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: spender.address, data }],
+      balanceQueries: tokenQueries(token.address),
       tokenSlotOverrides: [...balanceOverrides.slots, ...allowanceOverrides.slots],
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({ asset: token.address, delta: -200n });
+    expect(balanceDelta(result, token.address)).toEqual({
+      asset: token.address,
+      account: ctx.account.address,
+      before: OVERRIDE_TOKEN_AMOUNT,
+      after: OVERRIDE_TOKEN_AMOUNT - 200n,
+      delta: -200n,
+    });
   });
 
   it("rejects max uint256 token slot override amounts", async () => {
@@ -396,6 +595,7 @@ describe("viem-tx-sim", () => {
       sim.simulate({
         from: ctx.account.address,
         calls: [{ to: ctx.secondAccount.address, data: "0x" }],
+        balanceQueries: [],
         tokenSlotOverrides: [
           {
             token: ctx.secondAccount.address,
@@ -419,6 +619,7 @@ describe("viem-tx-sim", () => {
     const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: target.address, data }],
+      balanceQueries: [],
       errorAbi,
     });
 
@@ -439,6 +640,7 @@ describe("viem-tx-sim", () => {
     const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: target.address, data }],
+      balanceQueries: [],
     });
 
     if (result.status !== "reverted") throw new Error("expected reverted simulation");
@@ -466,10 +668,12 @@ describe("viem-tx-sim", () => {
     const boundResult = await customSim.simulate({
       from: ctx.account.address,
       calls: [{ to: target.address, data: unauthorized }],
+      balanceQueries: [],
     });
     const mergedResult = await customSim.simulate({
       from: ctx.account.address,
       calls: [{ to: target.address, data: insufficient }],
+      balanceQueries: [],
       errorAbi: parseAbi(["error InsufficientBalance(uint256 have, uint256 want)"]),
     });
 
@@ -489,6 +693,7 @@ describe("viem-tx-sim", () => {
     const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: target.address, data }],
+      balanceQueries: [],
     });
 
     if (result.status !== "reverted") throw new Error("expected reverted simulation");
@@ -496,17 +701,47 @@ describe("viem-tx-sim", () => {
     expect(result.revertError).toEqual({ name: "Error", args: ["string revert"] });
   });
 
-  it("returns unresolved transaction reverts instead of throwing", async () => {
+  it("returns transaction reverts with executed-prefix balance deltas", async () => {
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const target = await deploy("RevertingTarget.sol", "RevertingTarget");
+    await write(token, "mint", [ctx.account.address, 1_000n]);
+    const transfer = encodeFunctionData({
+      abi: token.abi,
+      functionName: "transfer",
+      args: [ctx.secondAccount.address, 100n],
+    });
+
     const result = await sim.simulate({
       from: ctx.account.address,
-      calls: [{ to: target.address, data: "0x12345678" }],
+      calls: [
+        { to: token.address, data: transfer },
+        { to: target.address, data: "0x12345678" },
+      ],
+      balanceQueries: [
+        { asset: token.address, account: ctx.account.address },
+        { asset: token.address, account: ctx.secondAccount.address },
+      ],
     });
 
     if (result.status !== "reverted") throw new Error("expected reverted simulation");
     expect(result.revertData).toBeDefined();
-    expect(typeof result.failingCallIndex).toBe("number");
-    expect(result.failingCallIndex).toBe(0);
+    expect(result.failingCallIndex).toBe(1);
+    expect(result.balanceDeltas).toEqual([
+      {
+        asset: token.address,
+        account: ctx.account.address,
+        before: 1_000n,
+        after: 900n,
+        delta: -100n,
+      },
+      {
+        asset: token.address,
+        account: ctx.secondAccount.address,
+        before: 0n,
+        after: 100n,
+        delta: 100n,
+      },
+    ]);
   });
 
   async function deploy(contractFile: string, contractName: string, args: readonly unknown[] = []) {
@@ -535,6 +770,18 @@ describe("viem-tx-sim", () => {
       args,
     });
     await ctx.publicClient.waitForTransactionReceipt({ hash });
+  }
+
+  function tokenQueries(asset: Address, account = ctx.account.address): BalanceQuery[] {
+    return [{ asset, account }];
+  }
+
+  function balanceDelta(
+    result: SimulationResult,
+    asset: "native" | Address,
+    account = ctx.account.address,
+  ) {
+    return result.balanceDeltas.find((delta) => delta.asset === asset && delta.account === account);
   }
 });
 

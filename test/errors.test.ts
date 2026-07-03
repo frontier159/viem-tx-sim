@@ -31,9 +31,9 @@ describe("error handling", () => {
   });
 
   it("rejects empty call batches with a typed input error", async () => {
-    await expect(sim.simulate({ from: ctx.account.address, calls: [] })).rejects.toBeInstanceOf(
-      InvalidSimulationInputError,
-    );
+    await expect(
+      sim.simulate({ from: ctx.account.address, calls: [], balanceQueries: [] }),
+    ).rejects.toBeInstanceOf(InvalidSimulationInputError);
 
     await expect(
       sim.estimateAssetRequirements({ from: ctx.account.address, calls: [] }),
@@ -45,7 +45,7 @@ describe("error handling", () => {
       throw new Error("the method eth_createAccessList does not exist/is not available");
     });
 
-    await expect(simulateTrivialCall()).rejects.toBeInstanceOf(AccessListUnsupportedError);
+    await expect(discoverTrivialQueries()).rejects.toBeInstanceOf(AccessListUnsupportedError);
   });
 
   it("treats access-list execution reverts as empty candidate discovery", async () => {
@@ -53,7 +53,9 @@ describe("error handling", () => {
       throw new Error("execution reverted");
     });
 
-    await expect(simulateTrivialCall()).resolves.toMatchObject({ status: "success" });
+    await expect(discoverTrivialQueries()).resolves.toEqual([
+      { asset: "native", account: ctx.account.address },
+    ]);
   });
 
   it("rejects unsupported state overrides with a typed error", async () => {
@@ -92,6 +94,14 @@ describe("error handling", () => {
 
   function simulateTrivialCall() {
     return sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: ctx.secondAccount.address, data: "0x" }],
+      balanceQueries: [],
+    });
+  }
+
+  function discoverTrivialQueries() {
+    return sim.balanceQueries.forUser({
       from: ctx.account.address,
       calls: [{ to: ctx.secondAccount.address, data: "0x" }],
     });

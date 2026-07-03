@@ -1,10 +1,14 @@
 import { DEFAULT_SIMULATION_GAS_LIMIT } from "./constants.js";
 import { InvalidSimulationInputError } from "./errors.js";
+import { forUserBalanceQueries } from "./internal/queryDiscovery.js";
 import { estimateAssetRequirements } from "./internal/requirements.js";
 import { blockOptionsSpread, type ClientArgs } from "./internal/rpc.js";
-import { discoverCandidateAddresses, runSimulator } from "./internal/simulator.js";
+import { runSimulator } from "./internal/simulator.js";
 import { prepareAllowanceOverrides, prepareBalanceOverrides } from "./internal/slots.js";
 import type {
+  BalanceDelta,
+  BalanceQuery,
+  ForUserBalanceQueriesArgs,
   PreparedAllowanceOverrides,
   PreparedBalanceOverrides,
   PrepareAllowanceOverridesArgs,
@@ -32,15 +36,13 @@ type BoundCallDefaults = {
  */
 export interface TxSimulator {
   /**
-   * Simulates one call or sequential batch and returns raw native/token balance deltas.
+   * Simulates one call or sequential batch and returns requested balance deltas.
    *
-   * This uses `eth_createAccessList` for candidate discovery and one `eth_call` with state
-   * overrides that injects the simulator at `from`. It does not automatically forge balances or
-   * allowances; preparation methods return ready-to-use `tokenSlotOverrides` for view-only or
-   * unfunded accounts. Transaction reverts return `status: "reverted"` instead of throwing.
+   * This performs one `eth_call` with state overrides that inject the simulator at `from`.
+   * Balances are observed only for `balanceQueries`; query the tokens you forge if you want to
+   * observe them. Transaction reverts return `status: "reverted"` instead of throwing.
    *
    * @throws InvalidSimulationInputError when `calls` is empty.
-   * @throws AccessListUnsupportedError when the RPC endpoint cannot provide access lists.
    * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides or
    * returns undecodable simulator output.
    *
@@ -50,10 +52,24 @@ export interface TxSimulator {
    * const result = await sim.simulate({
    *   from,
    *   calls: [{ to, data, value: 0n }],
+   *   balanceQueries: [{ asset: "native", account: from }],
    * });
    * ```
    */
   simulate: (args: SimulateArgs) => Promise<SimulationResult>;
+
+  readonly balanceQueries: {
+    /**
+     * Discovers wallet-style balance queries for `from`.
+     *
+     * This runs access-list candidate discovery, then one token-filter `eth_call`, and returns
+     * native plus token balance queries for `from`. Pass the result to `simulate`.
+     *
+     * @throws AccessListUnsupportedError when the RPC endpoint cannot provide access lists.
+     * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
+     */
+    forUser: (args: ForUserBalanceQueriesArgs) => Promise<BalanceQuery[]>;
+  };
 
   /**
    * Prepares ERC-20 balance overrides for `from`.
@@ -131,6 +147,10 @@ export const TxSimulator = {
 
     return {
       simulate: (args) => runSimulate({ ...args, ...revertDefaults(args), client: bound.client }),
+      balanceQueries: {
+        forUser: (args) =>
+          forUserBalanceQueries({ ...args, ...defaults(args), client: bound.client }),
+      },
       prepareBalanceOverrides: (args) =>
         prepareBalanceOverrides({ ...args, ...defaults(args), client: bound.client }),
       prepareAllowanceOverrides: (args) =>
@@ -151,26 +171,73 @@ async function runSimulate(args: SimulateArgs & ClientArgs): Promise<SimulationR
     data: call.data,
     value: call.value ?? 0n,
   })) satisfies SimulatedCall[];
-  const candidateAddresses = await discoverCandidateAddresses({
-    client: args.client,
-    from: args.from,
-    calls,
-    ...blockOptionsSpread(args),
-    gas: args.gas,
-    ...(args.debug !== undefined ? { debug: args.debug } : {}),
-  });
-
   const tokenSlotOverrides = args.tokenSlotOverrides ?? [];
 
-  return runSimulator({
+  const result = await runSimulator({
     client: args.client,
     from: args.from,
     calls,
-    candidates: [...candidateAddresses, ...tokenSlotOverrides.map((slot) => slot.token)],
+    candidates: [],
     tokenSlotOverrides,
+    balanceProbes: args.balanceQueries.map((query) => ({
+      token: query.asset,
+      account: query.account,
+    })),
     debug: args.debug,
     ...blockOptionsSpread(args),
     gas: args.gas,
     ...(args.errorAbi !== undefined ? { errorAbi: args.errorAbi } : {}),
   });
+  const balances = buildBalanceResults(args.balanceQueries, result.probeData);
+
+  if (result.status === "reverted") {
+    return {
+      status: "reverted",
+      ...balances,
+      revertData: result.revertData,
+      ...(result.revertReason !== undefined ? { revertReason: result.revertReason } : {}),
+      ...(result.revertError !== undefined ? { revertError: result.revertError } : {}),
+      ...(result.revertSelector !== undefined ? { revertSelector: result.revertSelector } : {}),
+      failingCallIndex: result.failingCallIndex,
+    };
+  }
+
+  return { status: "success", ...balances };
+}
+
+type BalanceResultFields = {
+  balanceDeltas: BalanceDelta[];
+  unresolved: BalanceQuery[];
+};
+
+function buildBalanceResults(
+  queries: readonly BalanceQuery[],
+  probeData: {
+    balanceBefore: readonly bigint[];
+    balanceAfter: readonly bigint[];
+    balanceProbeOk: readonly boolean[];
+  },
+): BalanceResultFields {
+  const balanceDeltas: BalanceDelta[] = [];
+  const unresolved: BalanceQuery[] = [];
+
+  for (let i = 0; i < queries.length; ++i) {
+    const query = queries[i];
+    if (query === undefined) continue;
+    if (probeData.balanceProbeOk[i] !== true) {
+      unresolved.push(query);
+      continue;
+    }
+    const before = probeData.balanceBefore[i] ?? 0n;
+    const after = probeData.balanceAfter[i] ?? 0n;
+    balanceDeltas.push({
+      asset: query.asset,
+      account: query.account,
+      before,
+      after,
+      delta: after - before,
+    });
+  }
+
+  return { balanceDeltas, unresolved };
 }

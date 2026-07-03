@@ -8,10 +8,12 @@ export {
 } from "./errors.js";
 export type {
   AllowanceSlot,
+  BalanceDelta,
+  BalanceQuery,
   PreparedAllowanceOverrides,
   AllowanceSlotPair,
-  AssetBalanceDelta,
   PreparedBalanceOverrides,
+  ForUserBalanceQueriesArgs,
   PrepareAllowanceOverridesArgs,
   PrepareBalanceOverridesArgs,
   EstimatedAssetRequirements,
