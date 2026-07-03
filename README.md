@@ -4,15 +4,14 @@ RPC-only transaction simulation helpers for [viem](https://viem.sh) applications
 
 ## Motivation
 
-Credit to [apoorv X thread](https://x.com/apoorveth/status/2041544070481449266)
-Transcribed in [motivation.md](./docs/motivation.md)
+Credit to the [apoorv X thread](https://x.com/apoorveth/status/2041544070481449266), transcribed in [motivation.md](./docs/motivation.md).
 
 Every wallet shows "asset changes" before you sign. Most do it by sending your data to a centralized simulation API — a single point of failure and a privacy leak. viem-tx-sim makes the EVM do the work itself:
 
 1. `eth_createAccessList` dry-runs each call and returns every contract the transaction touches — those become candidate tokens, with no token lists or indexers.
 2. One `eth_call` with state overrides injects a never-deployed `TxSimulator` contract **at the user's own address** and executes the calls. Because the simulator runs as the user, `address(this)` and `msg.sender` are the real account, so balance reads, allowance checks, and `msg.sender`-gated logic behave exactly as they would in the real transaction. Batch calls run sequentially in one EVM context, so an approval in call 1 is visible to a swap in call 2.
 
-Two RPC calls for a single-call transaction (one access list per call plus one `eth_call` for a batch), zero servers, zero trust assumptions. See [docs/motivation.md](./docs/motivation.md) for the design's origin story, including how Permit2's ERC-1271 path and proxy-token storage are handled.
+That is two RPC calls for a single-call transaction, or N + 1 calls for an N-call batch. Zero servers, zero trust assumptions. See [docs/motivation.md](./docs/motivation.md) for the design's origin story, including how Permit2's ERC-1271 path and proxy-token storage are handled.
 
 ## Getting started
 
@@ -66,13 +65,13 @@ console.log(result.assetBalanceDeltas);
 // ]
 ```
 
-Deltas are raw `bigint` amounts in each token's own units, discovered from chain state alone. A revert is returned as `status: "reverted"`, never thrown; checking `status` gives typed access to `revertData` and `failingCallIndex`.
+Deltas are raw `bigint` amounts in each token's own units, observed from chain state alone. A revert is returned as `status: "reverted"`, never thrown; checking `status` gives typed access to `revertData` and `failingCallIndex`.
 
-`sim.simulate()` runs against the account's real balances and does not retry or forge state by itself. If `user` doesn't actually hold 1,000 USDS (say you're previewing for a view-only address), forge the balance explicitly with a slot override — see the next section. `DEFAULT_SIMULATION_GAS_LIMIT` is exported for callers that want to pass or display the default 16M simulation gas budget.
+`sim.simulate()` runs against the account's real balances and does not retry or forge state by itself. If `user` doesn't actually hold 1,000 USDS (say you're previewing for a view-only address), prepare and pass a balance override — see the next section. `DEFAULT_SIMULATION_GAS_LIMIT` is exported for callers that want to pass or display the default 16M simulation gas budget.
 
-## Forging balances and allowances
+## Preparing balance and allowance overrides
 
-Slot preparation is explicit and cacheable. Preparation returns ready-to-use `TokenSlotOverride[]` entries, so pass them into a single simulation run:
+Override preparation is explicit and cacheable. Preparation returns ready-to-use `TokenSlotOverride[]` entries, so pass them into a single simulation run:
 
 ```ts
 import { TxSimulator } from "viem-tx-sim";
@@ -94,11 +93,11 @@ const result = await sim.simulate({
 });
 ```
 
-Balance slots are reusable per token/owner, and allowance slots are reusable per token/owner/spender for the block/state you trust. Preparation pre-sets `amount` to the exported `OVERRIDE_TOKEN_AMOUNT` sentinel, a non-max `10^50` value chosen so standard ERC-20 allowance decrements remain observable. Handcrafted override amounts must be below `uint256.max`; max allowance skips decrements, and max balances can overflow on incoming transfers. Deltas for real holdings still work for rebasing tokens like stETH; only dealing hypothetical balances can fail, reported in `unresolved`.
+Prepared balance overrides are reusable per token/owner, and prepared allowance overrides are reusable per token/owner/spender for the block/state you trust. Preparation pre-sets `amount` to the exported `OVERRIDE_TOKEN_AMOUNT` sentinel, a non-max `10^50` value chosen so standard ERC-20 allowance decrements remain observable. Handcrafted override amounts must be below `uint256.max`; max allowance skips decrements, and max balances can overflow on incoming transfers. Deltas for real holdings still work for rebasing tokens like stETH; only dealing hypothetical balances can fail, reported in `unresolved`.
 
 ## Estimating asset requirements (optional)
 
-When you don't already know which balances and approvals a transaction needs, `sim.estimateAssetRequirements()` measures them by forging generous state and observing per-call balance and allowance changes. Amounts are estimates measured under forged state and should be padded; pairs whose allowance is set inside the batch (approve or permit) are excluded, and measured allowance decreases are sanity-bounded by the token's gross outflow. Measurements discarded by that bound are reported under `unresolved.allowances`.
+When you don't already know which balances and approvals a transaction needs, `sim.estimateAssetRequirements()` measures them by forging generous state and observing per-call balance and allowance changes. Returned amounts are estimates measured under forged state and should be padded; pairs whose allowance is set inside the batch (approve or permit) are excluded, and measured allowance decreases are sanity-bounded by the token's gross outflow. Measurements discarded by that bound are reported under `unresolved.allowances`.
 
 ```ts
 import { TxSimulator } from "viem-tx-sim";
@@ -170,7 +169,7 @@ Situations the simulation does not cover, or where the preview can differ from r
 
 **Results are estimates against one block's state.** Deltas and estimated asset requirements reflect the chosen block; prices, liquidity, and allowances move before the real transaction lands. Pad amounts accordingly. Amounts from `sim.estimateAssetRequirements()` are additionally measured under forged (very large) balances, so contracts that branch on the account's real balance can be measured on the wrong branch.
 
-**Asset coverage is native + `balanceOf(address)`.** Deltas track ETH and anything answering ERC-20-style `balanceOf` (an ERC-721 shows up as a count delta, without token IDs). ERC-1155 balances (`balanceOf(address,uint256)`) are not tracked. Tokens whose balance is computed rather than stored in one slot per holder (rebasing/share-based tokens like stETH) cannot be forged — slot discovery verifies before overriding and reports them in the `unresolved` list.
+**Asset coverage is native + `balanceOf(address)`.** Deltas track ETH and anything answering ERC-20-style `balanceOf` (an ERC-721 shows up as a count delta, without token IDs). ERC-1155 balances (`balanceOf(address,uint256)`) are not tracked. Tokens whose balance is computed rather than stored in one slot per holder (rebasing/share-based tokens like stETH) cannot be forged — override preparation verifies slots before writing and reports them in the `unresolved` list.
 
 **Candidate discovery follows the dry run.** Token candidates come from `eth_createAccessList` on the *unforged* calls; if that dry run reverts early, contracts that would only be touched later are not discovered, and their deltas are missed. Forging (or `estimateAssetRequirements()`, which measures after forging) avoids most of this.
 

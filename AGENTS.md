@@ -19,11 +19,11 @@ Foundry compiles `contracts/TxSimulator.sol`.
 Never hand-edit files under `src/generated/`; regenerate them with `pnpm build:contracts`.
 `dist/` is committed and is part of the published package output.
 
-Slot discovery is explicit.
-Balance and allowance slots are found by access-list probing `balanceOf` / `allowance` data, then verifying a sentinel state override.
+Override preparation is explicit.
+Balance and allowance overrides are prepared by access-list probing `balanceOf` / `allowance` data, then verifying a sentinel state override.
 The sentinel is `OVERRIDE_TOKEN_AMOUNT` (`10^50`), deliberately not `uint256.max`, because allowance decrements must still fire for standard ERC-20 implementations.
 
-`discoverRequirements()` runs a recon simulation, discovers balance and allowance slots, then runs a forged measurement simulation.
+`estimateAssetRequirements()` runs a recon simulation, prepares balance and allowance overrides, then runs a forged measurement simulation.
 Allowance probes are recorded as flattened checkpoints with stride `calls.length + 1`, row-major per probe.
 Gross token/native outflows are measured from per-call minimum balances, not final net deltas.
 Allowance base-slot inference lives in `src/internal/slots.ts`; non-standard layouts fall back to probing.
@@ -39,14 +39,14 @@ Allowance base-slot inference lives in `src/internal/slots.ts`; non-standard lay
 - `src/internal/rpc.ts`: RPC wrappers, debug/error normalization, block/call parameter helpers.
 - `src/internal/simulator.ts`: candidate discovery, state-override simulator execution, revert decoding.
 - `src/internal/probes.ts`: balance/allowance reads and access-list-plus-sentinel slot verification.
-- `src/internal/slots.ts`: balance/allowance slot discovery, allowance layout inference, mapping slot math.
-- `src/internal/requirements.ts`: optional requirement measurement over forged state.
+- `src/internal/slots.ts`: balance/allowance override preparation, allowance layout inference, mapping slot math.
+- `src/internal/requirements.ts`: optional asset-requirement estimation over forged state.
 - `contracts/TxSimulator.sol`: ghost contract executed only through `eth_call` state overrides.
 
 ## Invariants tests pin
 
 Tests pin exact RPC call counts through debug events; refactors must not add hidden RPC calls.
-Tests pin exact balance deltas, requirement amounts, and reverted-call reporting.
+Tests pin exact balance deltas, estimated requirement amounts, and reverted-call reporting.
 Checkpoint math depends on `allowanceCheckpoints[probeIndex * (calls.length + 1) + callIndex]`.
 Candidate/result ordering must stay deterministic even when RPC calls are parallelized.
 The `10^50` sentinel must remain non-max so `transferFrom` allowance decreases are observable.

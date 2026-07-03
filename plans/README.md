@@ -91,12 +91,14 @@ From the 2026-07-02 architecture/DX-focused audit (016-022 wave):
 - **`probeData` computed when `allowanceProbes` is empty** — one tuple decode of empty arrays; not worth an API flag.
 - **`parseAbi` at module load** — standard viem usage, one-time cost.
 - **`mappingSlot` "underutilized export"** — it is the building block of `allowanceSlotFor`; working as intended.
-- **`Req`/`Resp` type-name suffixes and `find*` method renames** (from the instance-API sketch) — rejected in favor of the repo's existing `XxxArgs`/`XxxResult` and `discover*` vocabulary; restructuring and renaming at once doubles the diff for no semantic gain.
+- **`Req`/`Resp` type-name suffixes and `find*` method renames** (from the instance-API sketch) — rejected in that wave to avoid restructuring and renaming at once. Later superseded by plan 027's `prepare*Overrides` / `estimateAssetRequirements` rename.
 - **Binding `from` into the instance API** — rejected: wallets switch accounts; cache keys include owner anyway.
 
 Positive finding worth preserving (added to CLAUDE.md by plan 022): internal modules never import from public modules; no cycles.
 
 ## Reconciliation log
+
+- **2026-07-03 (HEAD `b3390e0`)**: plan 027 (externally authored — intent-centric renames: `prepare*Overrides`/`estimateAssetRequirements`) verified DONE on HEAD. The reconcile initially raced the in-flight execution (staged-only snapshot); after commit `b3390e0` landed: zero matches for any old `discover*`/`Discovered*` public name in src/test/README, all 8 new type names exported from index.ts, `dist/` `.d.ts` files carry only the new surface, typecheck + lint green, suite green (40 passed / 4 skipped — identical count to pre-rename, confirming pure rename). One benign uncommitted leftover noted: a `forge-lint: disable-next-line(custom-errors)` comment on the intentional string-revert fixture in `contracts/test/CustomErrorTarget.sol` (comment-only; maintainer to commit or drop at will). Backlog: 27/27 DONE.
 
 - **2026-07-03 (HEAD `ab56dab`)**: plan 026 verified DONE on HEAD. Gates: typecheck + lint green; suite green (40 passed — the new max-amount guard test added — 4 mainnet opt-ins skipped). Criteria: `TokenSlotOverride.amount` required (no optional occurrence), `BalanceSlot` gone outside `BalanceSlotDiscovery`, `AllowanceSlot` declared as `TokenSlotOverride &` intersection, no `?? OVERRIDE_TOKEN_AMOUNT` fallback remains, max-uint guard at simulator.ts:290 with an `InvalidSimulationInputError` test, deal-framed docs in types.ts (4 mentions) and README. Backlog fully executed: 26/26 DONE; open items remain the three deferred direction findings.
 

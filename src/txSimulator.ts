@@ -56,7 +56,7 @@ export interface TxSimulator {
   simulate: (args: SimulateArgs) => Promise<SimulationResult>;
 
   /**
-   * Prepares ERC-20 balance storage overrides for tokens owned by `from`.
+   * Prepares ERC-20 balance overrides for `from`.
    *
    * Each token is probed with RPC-only access lists and sentinel state overrides. Tokens the
    * simulator cannot `deal` by verified storage write are returned in `unresolved` rather than
@@ -67,11 +67,11 @@ export interface TxSimulator {
   prepareBalanceOverrides: (args: PrepareBalanceOverridesArgs) => Promise<PreparedBalanceOverrides>;
 
   /**
-   * Prepares ERC-20 allowance storage overrides for token/spender pairs owned by `from`.
+   * Prepares ERC-20 allowance overrides for `from` and the requested token/spender pairs.
    *
    * Standard Solidity allowance layouts are inferred after one verified probe per token where
    * possible; non-standard layouts fall back to per-pair probing. Pairs the simulator cannot `deal`
-   * by verified storage write are returned in `unresolved` rather than thrown.
+   * via verified storage write are returned in `unresolved` rather than thrown.
    *
    * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
    */
@@ -80,9 +80,9 @@ export interface TxSimulator {
   ) => Promise<PreparedAllowanceOverrides>;
 
   /**
-   * Estimates required balances and approvals by forging generous state and observing outflows.
+   * Estimates the balances and approvals needed to execute the observed path.
    *
-   * Use this when the tokens or spenders are not known ahead of time. Returned amounts are measured
+   * Use this when the tokens or spenders are not known ahead of time. Returned amounts are estimated
    * under forged balances/allowances and should be padded before display or transaction assembly;
    * unreliable measurements are reported under `unresolved`.
    *

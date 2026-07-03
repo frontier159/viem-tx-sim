@@ -100,7 +100,7 @@ export type SimulateArgs = SimulationOptions & {
   from: Address;
   /** One call or an ERC-5792-style sequential batch. Must contain at least one call. */
   calls: readonly SimulatedCall[];
-  /** Storage-slot overrides applied before simulating. Usually from slot discovery. */
+  /** Storage-slot overrides applied before simulating. Usually from override preparation. */
   tokenSlotOverrides?: readonly TokenSlotOverride[];
   /** Additional error definitions for decoding this call's reverts; merged after the bound errorAbi. */
   errorAbi?: Abi;
@@ -108,23 +108,23 @@ export type SimulateArgs = SimulationOptions & {
 
 /** Arguments for `TxSimulator.prepareBalanceOverrides`. */
 export type PrepareBalanceOverridesArgs = SimulationOptions & {
-  /** Account whose token balance storage slots should be found. */
+  /** Account whose token balance overrides should be prepared. */
   from: Address;
-  /** Tokens to probe for ERC-20-style balance slots. */
+  /** Tokens to prepare ERC-20-style balance overrides for. */
   tokens: readonly Address[];
 };
 
 /** Arguments for `TxSimulator.prepareAllowanceOverrides`. */
 export type PrepareAllowanceOverridesArgs = SimulationOptions & {
-  /** Account whose allowance storage slots should be found. */
+  /** Account whose allowance overrides should be prepared. */
   from: Address;
-  /** Token/spender allowance pairs to probe. */
+  /** Token/spender allowance pairs to prepare overrides for. */
   pairs: readonly AllowanceSlotPair[];
 };
 
 /** Arguments for `TxSimulator.estimateAssetRequirements`. */
 export type EstimateAssetRequirementsArgs = SimulationOptions & {
-  /** Account whose balances and approvals should be measured. */
+  /** Account whose balance and approval needs should be estimated. */
   from: Address;
   /** One call or an ERC-5792-style sequential batch. Must contain at least one call. */
   calls: readonly SimulatedCall[];
@@ -143,13 +143,13 @@ export type TxSimulatorConfig = {
   errorAbi?: Abi;
 };
 
-/** Minimum token balance requirement measured under forged state. */
+/** Estimated minimum token balance needed under forged state. */
 export type RequiredBalance = {
   token: Address;
   amount: bigint;
 };
 
-/** Minimum total allowance requirement measured under forged state. */
+/** Estimated minimum total allowance needed under forged state. */
 export type RequiredAllowance = {
   token: Address;
   spender: Address;
@@ -165,26 +165,26 @@ type EstimatedAssetRequirementsBase = {
   allowances: RequiredAllowance[];
   /** Verified slots prepared along the way; pass to `simulate` as `tokenSlotOverrides`. */
   slots: TokenSlotOverride[];
-  /** Values the requirement probe could not verify or could not trust. */
+  /** Values the estimator could not verify or could not trust. */
   unresolved: {
     /**
-     * Tokens the requirement probe could not `deal` in the Foundry sense: no balance slot could be
+     * Tokens the estimator could not `deal` in the Foundry sense: no balance slot could be
      * sentinel-verified for writing hypothetical balances. Real-holding deltas are unaffected.
      */
     balanceSlots: Address[];
-    /** Token/spender pairs the requirement probe could not `deal` as allowances. */
+    /** Token/spender pairs the estimator could not `deal` as allowances. */
     allowanceSlots: AllowanceSlotPair[];
     /** Token/spender pairs measured but discarded as unreliable, usually because they exceeded gross outflow. */
     allowances: AllowanceSlotPair[];
   };
 };
 
-/** Successful requirement measurement. */
+/** Successful asset-requirement estimate. */
 export type EstimatedAssetRequirementsSuccess = EstimatedAssetRequirementsBase & {
   status: "success";
 };
 
-/** Requirement measurement that still observed a transaction revert after forging available state. */
+/** Asset-requirement estimate that still observed a transaction revert after forging available state. */
 export type EstimatedAssetRequirementsReverted = EstimatedAssetRequirementsBase & {
   status: "reverted";
   /** Raw EVM revert data from the failing simulated call. */
@@ -199,7 +199,7 @@ export type EstimatedAssetRequirementsReverted = EstimatedAssetRequirementsBase 
   failingCallIndex: number;
 };
 
-/** Requirement measurement result; check `status` before reading revert fields. */
+/** Asset-requirement estimate result; check `status` before reading revert fields. */
 export type EstimatedAssetRequirements =
   | EstimatedAssetRequirementsSuccess
   | EstimatedAssetRequirementsReverted;
