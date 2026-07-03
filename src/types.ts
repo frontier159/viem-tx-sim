@@ -10,6 +10,30 @@ export type SimulatedCall = {
   value?: bigint;
 };
 
+/** One balance to observe during simulation. `asset` is `"native"` or an ERC-20 address. */
+export type BalanceQuery = {
+  asset: "native" | Address;
+  /** Account whose balance is observed; this can be any address, not just `from`. */
+  account: Address;
+};
+
+/**
+ * Balance observation for one query. `before` is after `tokenSlotOverrides` are applied, so deltas
+ * describe simulated changes under the supplied state assumptions.
+ */
+export type BalanceDelta = {
+  asset: "native" | Address;
+  account: Address;
+  before: bigint;
+  after: bigint;
+  delta: bigint;
+  /**
+   * Signed change per call, index-aligned with `calls`. Sums to `delta`; on a
+   * revert, entries from the failing call onward are 0n.
+   */
+  byCall: readonly bigint[];
+};
+
 /** Structured event emitted before and after each RPC call when debug logging is enabled. */
 export type SimulationDebugEvent = {
   /** Lifecycle phase for the RPC operation. */
@@ -51,7 +75,7 @@ type SimulationOptions = {
 export type TokenSlotOverride = {
   /** Token contract whose storage should be overridden. */
   token: Address;
-  /** Storage slot to write. Usually prepared by `prepareBalanceOverrides` or `prepareAllowanceOverrides`. */
+  /** Storage slot to write. Usually prepared by `tokenOverrides.forBalances` or `tokenOverrides.forAllowances`. */
   slot: Hex;
   /** Value written to the slot. Must be below uint256 max. */
   amount: bigint;
@@ -100,13 +124,26 @@ export type SimulateArgs = SimulationOptions & {
   from: Address;
   /** One call or an ERC-5792-style sequential batch. Must contain at least one call. */
   calls: readonly SimulatedCall[];
-  /** Storage-slot overrides applied before simulating. Usually from override preparation. */
+  /** Balances to observe. Use `[]` to execute without balance observations. */
+  balanceQueries: readonly BalanceQuery[];
+  /**
+   * Storage-slot overrides applied before simulating. Query the tokens you forge if you want to
+   * observe them.
+   */
   tokenSlotOverrides?: readonly TokenSlotOverride[];
   /** Additional error definitions for decoding this call's reverts; merged after the bound errorAbi. */
   errorAbi?: Abi;
 };
 
-/** Arguments for `TxSimulator.prepareBalanceOverrides`. */
+/** Arguments for `TxSimulator.balanceQueries.forUser`. */
+export type ForUserBalanceQueriesArgs = SimulationOptions & {
+  /** Account whose wallet-style balance queries should be discovered. */
+  from: Address;
+  /** Calls whose access lists should be searched for token candidates. */
+  calls: readonly SimulatedCall[];
+};
+
+/** Arguments for `TxSimulator.tokenOverrides.forBalances`. */
 export type PrepareBalanceOverridesArgs = SimulationOptions & {
   /** Account whose token balance overrides should be prepared. */
   from: Address;
@@ -114,7 +151,7 @@ export type PrepareBalanceOverridesArgs = SimulationOptions & {
   tokens: readonly Address[];
 };
 
-/** Arguments for `TxSimulator.prepareAllowanceOverrides`. */
+/** Arguments for `TxSimulator.tokenOverrides.forAllowances`. */
 export type PrepareAllowanceOverridesArgs = SimulationOptions & {
   /** Account whose allowance overrides should be prepared. */
   from: Address;
@@ -122,7 +159,7 @@ export type PrepareAllowanceOverridesArgs = SimulationOptions & {
   pairs: readonly AllowanceSlotPair[];
 };
 
-/** Arguments for `TxSimulator.estimateAssetRequirements`. */
+/** Arguments for `TxSimulator.tokenOverrides.estimateRequirements`. */
 export type EstimateAssetRequirementsArgs = SimulationOptions & {
   /** Account whose balance and approval needs should be estimated. */
   from: Address;
@@ -204,26 +241,22 @@ export type EstimatedAssetRequirements =
   | EstimatedAssetRequirementsSuccess
   | EstimatedAssetRequirementsReverted;
 
-/** Raw balance delta for native ETH or an ERC-20-style `balanceOf(address)` asset. */
-export type AssetBalanceDelta = {
-  /** `"native"` for ETH, otherwise the token contract address. */
-  asset: "native" | Address;
-  /** Signed raw-unit balance change for `from`; negative means the account lost assets. */
-  delta: bigint;
-};
-
 /** Successful simulation result. */
 export type SimulationSuccess = {
   status: "success";
-  /** Non-zero raw balance deltas observed during the simulated execution. */
-  assetBalanceDeltas: AssetBalanceDelta[];
+  /** Balance observations mirrored 1:1 from successful queries, including zero deltas. */
+  balanceDeltas: BalanceDelta[];
+  /** Queries that could not be read, usually because an ERC-20 `balanceOf` staticcall failed. */
+  unresolved: BalanceQuery[];
 };
 
 /** Simulation result for a transaction revert; infrastructure failures throw typed errors instead. */
 export type SimulationReverted = {
   status: "reverted";
-  /** Non-zero raw balance deltas observed before the failing call. */
-  assetBalanceDeltas: AssetBalanceDelta[];
+  /** Balance observations mirrored 1:1 from successful queries, including zero deltas. */
+  balanceDeltas: BalanceDelta[];
+  /** Queries that could not be read, usually because an ERC-20 `balanceOf` staticcall failed. */
+  unresolved: BalanceQuery[];
   /** Raw EVM revert data from the failing simulated call. */
   revertData: Hex;
   /** Human-readable decoded revert; present when revertData decodes via supplied error definitions or as built-in Error/Panic. */

@@ -6,14 +6,10 @@ import {
   parseAbi,
   slice,
   size,
+  zeroAddress,
 } from "viem";
 
-import type {
-  AssetBalanceDelta,
-  SimulatedCall,
-  SimulationResult,
-  TokenSlotOverride,
-} from "../types.js";
+import type { RevertError, SimulatedCall, TokenSlotOverride } from "../types.js";
 import { InvalidSimulationInputError, StateOverrideUnsupportedError } from "../errors.js";
 import { txSimulatorRuntimeBytecode } from "../generated/txSimulatorBytecode.js";
 import {
@@ -39,17 +35,31 @@ type ProbeData = {
   maxTokenOutflows: readonly bigint[];
   maxNativeOutflow: bigint;
   allowanceCheckpoints: readonly bigint[];
+  balanceCheckpoints: readonly bigint[];
+  balanceProbeOk: readonly boolean[];
 };
 
-export type SimulatorResult = SimulationResult & {
+type SimulatorBase = {
   probeData: ProbeData;
 };
+
+export type SimulatorResult =
+  | (SimulatorBase & { status: "success" })
+  | (SimulatorBase & {
+      status: "reverted";
+      revertData: Hex;
+      revertReason?: string;
+      revertError?: RevertError;
+      revertSelector?: Hex;
+      failingCallIndex: number;
+    });
 
 const txSimulatorAbi = parseAbi([
   "struct SimulatedCall { address to; uint256 value; bytes data; }",
   "struct AllowanceProbe { address token; address spender; }",
-  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; int256 nativeDelta; address[] observedTokens; address[] deltaTokens; int256[] tokenDeltas; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; }",
-  "function simulate(SimulatedCall[] calls, address[] candidates, AllowanceProbe[] probes) returns (SimulationResult)",
+  "struct BalanceProbe { address token; address account; }",
+  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; int256 nativeDelta; address[] observedTokens; address[] deltaTokens; int256[] tokenDeltas; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; uint256[] balanceCheckpoints; bool[] balanceProbeOk; }",
+  "function simulate(SimulatedCall[] calls, address[] candidates, AllowanceProbe[] probes, BalanceProbe[] balanceProbes) returns (SimulationResult)",
   "function isValidSignature(bytes32 hash, bytes signature) view returns (bytes4)",
 ]);
 
@@ -61,11 +71,16 @@ export async function runSimulator(
     tokenSlotOverrides?: readonly TokenSlotOverride[];
     extraStateOverrides?: readonly StateOverrideEntry[];
     allowanceProbes?: readonly { token: Address; spender: Address }[];
+    balanceProbes?: readonly { token: Address | "native"; account: Address }[];
     debugStep?: string;
     errorAbi?: Abi;
   },
 ): Promise<SimulatorResult> {
   const candidates = uniqueAddresses(args.candidates);
+  const balanceProbes = (args.balanceProbes ?? []).map((probe) => ({
+    token: probe.token === "native" ? zeroAddress : probe.token,
+    account: probe.account,
+  }));
   const data = encodeFunctionData({
     abi: txSimulatorAbi,
     functionName: "simulate",
@@ -77,6 +92,7 @@ export async function runSimulator(
       })),
       candidates,
       args.allowanceProbes ?? [],
+      balanceProbes,
     ],
   });
 
@@ -97,6 +113,7 @@ export async function runSimulator(
           from: args.from,
           calls: args.calls.length,
           candidates: candidates.length,
+          balanceProbes: balanceProbes.length,
           storageOverrides: args.tokenSlotOverrides?.length ?? 0,
           stateOverrideAccounts: stateOverride.length,
         },
@@ -133,32 +150,20 @@ export async function runSimulator(
     );
   }
 
-  const assetBalanceDeltas: AssetBalanceDelta[] = [];
-  if (result.nativeDelta !== 0n) {
-    assetBalanceDeltas.push({ asset: "native", delta: result.nativeDelta });
-  }
-
-  for (let i = 0; i < result.deltaTokens.length; ++i) {
-    const token = result.deltaTokens[i];
-    const delta = result.tokenDeltas[i];
-    if (token && delta !== undefined && delta !== 0n) {
-      assetBalanceDeltas.push({ asset: token, delta });
-    }
-  }
-
   const probeData = {
     observedTokens: uniqueAddresses(result.observedTokens),
     candidates,
     maxTokenOutflows: result.maxTokenOutflows,
     maxNativeOutflow: result.maxNativeOutflow,
     allowanceCheckpoints: result.allowanceCheckpoints,
+    balanceCheckpoints: result.balanceCheckpoints,
+    balanceProbeOk: result.balanceProbeOk,
   };
 
   if (!result.success) {
     const decodedRevert = decodeRevert(result.revertData, args.errorAbi);
     return {
       status: "reverted",
-      assetBalanceDeltas,
       revertData: result.revertData,
       ...(decodedRevert.revertReason !== undefined
         ? { revertReason: decodedRevert.revertReason }
@@ -176,7 +181,6 @@ export async function runSimulator(
 
   return {
     status: "success",
-    assetBalanceDeltas,
     probeData,
   };
 }

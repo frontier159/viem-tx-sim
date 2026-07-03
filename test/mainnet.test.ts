@@ -65,7 +65,7 @@ mainnetDescribe("mainnet RPC integration", () => {
     });
 
     const blockNumber = mainnetBlockNumber();
-    const balanceOverrides = await sim.prepareBalanceOverrides({
+    const balanceOverrides = await sim.tokenOverrides.forBalances({
       from: ANVIL_ACCOUNT,
       tokens: [USDC],
       blockNumber,
@@ -78,12 +78,15 @@ mainnetDescribe("mainnet RPC integration", () => {
       from: ANVIL_ACCOUNT,
       calls: [{ to: USDC, data }],
       blockNumber,
+      balanceQueries: [{ asset: USDC, account: ANVIL_ACCOUNT }],
       tokenSlotOverrides: balanceOverrides.slots,
       debug: (event) => events.push(event),
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({ asset: USDC, delta: -1n });
+    expect(result.balanceDeltas).toEqual([
+      expect.objectContaining({ asset: USDC, account: ANVIL_ACCOUNT, delta: -1n }),
+    ]);
     expect(events).toContainEqual(
       expect.objectContaining({
         phase: "success",
@@ -106,12 +109,12 @@ mainnetDescribe("mainnet RPC integration", () => {
     const sim = TxSimulator.create({ client });
     const blockNumber = mainnetBlockNumber();
     const [balanceOverrides, allowanceOverrides] = await Promise.all([
-      sim.prepareBalanceOverrides({
+      sim.tokenOverrides.forBalances({
         from: ANVIL_ACCOUNT,
         tokens: [USDS],
         blockNumber,
       }),
-      sim.prepareAllowanceOverrides({
+      sim.tokenOverrides.forAllowances({
         from: ANVIL_ACCOUNT,
         pairs: [{ token: USDS, spender: SUSDS }],
         blockNumber,
@@ -130,7 +133,7 @@ mainnetDescribe("mainnet RPC integration", () => {
       transport: http(MAINNET_RPC_URL),
     });
     const sim = TxSimulator.create({ client });
-    const requirements = await sim.estimateAssetRequirements({
+    const requirements = await sim.tokenOverrides.estimateRequirements({
       from: ANVIL_ACCOUNT,
       calls: [{ to: SUSDS, data: usdsDepositCalldata() }],
       blockNumber: mainnetBlockNumber(),
@@ -158,18 +161,27 @@ mainnetDescribe("mainnet RPC integration", () => {
       from: ANVIL_ACCOUNT,
       calls: [{ to: SUSDS, data: usdsDepositCalldata() }],
       blockNumber: mainnetBlockNumber(),
+      balanceQueries: [
+        { asset: USDS, account: ANVIL_ACCOUNT },
+        { asset: SUSDS, account: ANVIL_ACCOUNT },
+      ],
       tokenSlotOverrides: USDS_SLOT_OVERRIDES,
     });
 
     expect(result.status).toBe("success");
-    expect(result.assetBalanceDeltas).toContainEqual({
+    expect(result.balanceDeltas).toContainEqual({
       asset: USDS,
+      account: ANVIL_ACCOUNT,
       delta: -USDS_DEPOSIT_ASSETS,
+      before: OVERRIDE_TOKEN_AMOUNT,
+      after: OVERRIDE_TOKEN_AMOUNT - USDS_DEPOSIT_ASSETS,
+      byCall: [-USDS_DEPOSIT_ASSETS],
     });
-    expect(result.assetBalanceDeltas).toEqual(
+    expect(result.balanceDeltas).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           asset: SUSDS,
+          account: ANVIL_ACCOUNT,
         }),
       ]),
     );
