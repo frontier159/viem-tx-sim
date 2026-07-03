@@ -14,6 +14,7 @@ contract CustomErrorTarget {
     }
 
     function failString() external pure {
+        // forge-lint: disable-next-line(custom-errors)
         revert("string revert");
     }
 }
