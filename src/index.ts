@@ -10,6 +10,7 @@ export type {
   AllowanceSlot,
   BalanceDelta,
   BalanceQuery,
+  NativeBalanceOverride,
   PreparedAllowanceOverrides,
   AllowanceSlotPair,
   PreparedBalanceOverrides,

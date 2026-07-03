@@ -27,7 +27,7 @@ The core simulation is one RPC call when you already know what to observe. The w
 
 ## Mental model
 
-Everything passed to `sim.simulate()` is one of three explicit inputs: `calls` are what executes, `balanceQueries` are what you observe, and `tokenSlotOverrides` are the state assumptions you want to forge. `simulate()` does not discover tokens, retry, or forge balances by itself. The helper namespaces only build those data inputs: `balanceQueries.*` builds observations, and `tokenOverrides.*` builds assumptions.
+Everything passed to `sim.simulate()` is explicit: `calls` are what executes, `balanceQueries` are what you observe, and `tokenSlotOverrides` / `nativeBalanceOverrides` are the state assumptions you want to forge. `simulate()` does not discover tokens, retry, or forge balances by itself. The helper namespaces only build those data inputs: `balanceQueries.*` builds observations, and `tokenOverrides.*` builds token assumptions.
 
 ## API at a glance
 
@@ -39,6 +39,7 @@ const result = await sim.simulate({
   calls, // SimulatedCall[]
   balanceQueries, // BalanceQuery[]
   tokenSlotOverrides, // TokenSlotOverride[] | undefined
+  nativeBalanceOverrides, // NativeBalanceOverride[] | undefined
   gas,
   debug,
   errorAbi,
@@ -120,7 +121,7 @@ console.log(result.balanceDeltas);
 
 `balanceDeltas` mirror your `balanceQueries` in order, including zero deltas, with raw `bigint` amounts in each asset's own units. `byCall` is index-aligned with `calls`, sums to `delta`, and entries from a failing call onward are `0n` on a returned revert. A revert is returned as `status: "reverted"`, never thrown; checking `status` gives typed access to `revertData` and `failingCallIndex`.
 
-`sim.simulate()` observes only the balances you ask for and does not retry or forge state by itself. If `user` doesn't actually hold 1,000 USDS (say you're previewing for a view-only address), prepare and pass a balance override — see the next section. Query the tokens you forge if you want to observe them. `DEFAULT_SIMULATION_GAS_LIMIT` is exported for callers that want to pass or display the default 16M simulation gas budget.
+`sim.simulate()` observes only the balances you ask for and does not retry or forge state by itself. If `user` doesn't actually hold 1,000 USDS (say you're previewing for a view-only address), prepare and pass a balance override — see the next section. Query the token or native accounts you forge if you want to observe them. `DEFAULT_SIMULATION_GAS_LIMIT` is exported for callers that want to pass or display the default 16M simulation gas budget.
 
 If your dapp already knows what it needs to inspect, skip wallet discovery and pass explicit queries. This can observe any account, not just `from`:
 
@@ -165,9 +166,20 @@ const result = await sim.simulate({
 
 Prepared balance overrides are reusable per token/owner, and prepared allowance overrides are reusable per token/owner/spender for the block/state you trust. Preparation pre-sets `amount` to the exported `OVERRIDE_TOKEN_AMOUNT` sentinel, a non-max `10^50` value chosen so standard ERC-20 allowance decrements remain observable. Handcrafted override amounts must be below `uint256.max`; max allowance skips decrements, and max balances can overflow on incoming transfers. Deltas for real holdings still work for rebasing tokens like stETH; only dealing hypothetical balances can fail, reported in `unresolved`.
 
+Native balances do not need preparation or slot discovery. Set them directly with `nativeBalanceOverrides`, for `from` or any other account:
+
+```ts
+const result = await sim.simulate({
+  from,
+  calls,
+  balanceQueries: [{ asset: "native", account: from }],
+  nativeBalanceOverrides: [{ account: from, amount: OVERRIDE_TOKEN_AMOUNT }],
+});
+```
+
 ## Estimating asset requirements (optional)
 
-When you don't already know which balances and approvals a transaction needs, `sim.tokenOverrides.estimateRequirements()` measures them by forging generous state and observing per-call balance and allowance changes. Returned amounts are estimates measured under forged state and should be padded; pairs whose allowance is set inside the batch (approve or permit) are excluded, and measured allowance decreases are sanity-bounded by the token's gross outflow. Measurements discarded by that bound are reported under `unresolved.allowances`.
+When you don't already know which balances and approvals a transaction needs, `sim.tokenOverrides.estimateRequirements()` measures them by forging generous state and observing per-call balance and allowance changes. It also forges native balance for `from`, so native zap-in routes from unfunded wallets report `requirements.native` instead of failing as a route error. Returned amounts are estimates measured under forged state and should be padded; pairs whose allowance is set inside the batch (approve or permit) are excluded, and measured allowance decreases are sanity-bounded by the token's gross outflow. Measurements discarded by that bound are reported under `unresolved.allowances`.
 
 ```ts
 import { TxSimulator } from "viem-tx-sim";

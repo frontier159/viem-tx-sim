@@ -200,6 +200,10 @@ async function runSimulate(args: SimulateArgs & ClientArgs): Promise<SimulationR
     calls,
     candidates: [],
     tokenSlotOverrides,
+    extraStateOverrides: (args.nativeBalanceOverrides ?? []).map((override) => ({
+      address: override.account,
+      balance: override.amount,
+    })),
     balanceProbes: args.balanceQueries.map((query) => ({
       token: query.asset,
       account: query.account,
