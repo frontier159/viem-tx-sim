@@ -36,7 +36,7 @@ describe("error handling", () => {
     );
 
     await expect(
-      sim.discoverRequirements({ from: ctx.account.address, calls: [] }),
+      sim.estimateAssetRequirements({ from: ctx.account.address, calls: [] }),
     ).rejects.toBeInstanceOf(InvalidSimulationInputError);
   });
 
@@ -83,7 +83,7 @@ describe("error handling", () => {
     });
 
     await expect(
-      sim.discoverBalanceSlots({
+      sim.prepareBalanceOverrides({
         from: ctx.account.address,
         tokens: [token.address],
       }),

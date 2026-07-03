@@ -3,10 +3,10 @@ import { encodeAbiParameters, keccak256 } from "viem";
 
 import { OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
 import type {
-  AllowanceSlotDiscovery,
-  BalanceSlotDiscovery,
-  DiscoverAllowanceSlotsArgs,
-  DiscoverBalanceSlotsArgs,
+  PreparedAllowanceOverrides,
+  PreparedBalanceOverrides,
+  PrepareAllowanceOverridesArgs,
+  PrepareBalanceOverridesArgs,
   TokenSlotOverride,
 } from "../types.js";
 import { addressKey, uint256Hex } from "./data.js";
@@ -24,10 +24,10 @@ type AllowanceSlotFact = SlotFact & {
 };
 
 // Orchestration
-/** @internal Implements `TxSimulator.discoverBalanceSlots`. Prefer the instance API from the package root. */
-export async function discoverBalanceSlots(
-  args: DiscoverBalanceSlotsArgs & ClientArgs,
-): Promise<BalanceSlotDiscovery> {
+/** @internal Implements `TxSimulator.prepareBalanceOverrides`. Prefer the instance API from the package root. */
+export async function prepareBalanceOverrides(
+  args: PrepareBalanceOverridesArgs & ClientArgs,
+): Promise<PreparedBalanceOverrides> {
   const slots = await Promise.all(
     args.tokens.map((token) =>
       discoverBalanceSlot({
@@ -47,11 +47,11 @@ export async function discoverBalanceSlots(
   };
 }
 
-/** @internal Implements `TxSimulator.discoverAllowanceSlots`. Prefer the instance API from the package root. */
-export async function discoverAllowanceSlots(
-  args: DiscoverAllowanceSlotsArgs & ClientArgs,
-): Promise<AllowanceSlotDiscovery> {
-  const slots = await discoverAllowanceSlotsWithInference({
+/** @internal Implements `TxSimulator.prepareAllowanceOverrides`. Prefer the instance API from the package root. */
+export async function prepareAllowanceOverrides(
+  args: PrepareAllowanceOverridesArgs & ClientArgs,
+): Promise<PreparedAllowanceOverrides> {
+  const slots = await prepareAllowanceOverridesWithInference({
     client: args.client,
     from: args.from,
     pairs: args.pairs,
@@ -84,7 +84,7 @@ type IndexedAllowancePair = AllowancePair & {
   index: number;
 };
 
-async function discoverAllowanceSlotsWithInference(
+async function prepareAllowanceOverridesWithInference(
   args: RpcCallArgs & {
     from: Address;
     pairs: readonly AllowancePair[];

@@ -72,17 +72,17 @@ Deltas are raw `bigint` amounts in each token's own units, discovered from chain
 
 ## Forging balances and allowances
 
-Slot discovery is explicit and cacheable. Discovery returns ready-to-use `TokenSlotOverride[]` entries, so pass them into a single simulation run:
+Slot preparation is explicit and cacheable. Preparation returns ready-to-use `TokenSlotOverride[]` entries, so pass them into a single simulation run:
 
 ```ts
 import { TxSimulator } from "viem-tx-sim";
 
 const sim = TxSimulator.create({ client });
-const balanceDiscovery = await sim.discoverBalanceSlots({
+const balanceOverrides = await sim.prepareBalanceOverrides({
   from,
   tokens: [token],
 });
-const allowanceDiscovery = await sim.discoverAllowanceSlots({
+const allowanceOverrides = await sim.prepareAllowanceOverrides({
   from,
   pairs: [{ token, spender }],
 });
@@ -90,21 +90,21 @@ const allowanceDiscovery = await sim.discoverAllowanceSlots({
 const result = await sim.simulate({
   from,
   calls: [{ to, data }],
-  tokenSlotOverrides: [...balanceDiscovery.slots, ...allowanceDiscovery.slots],
+  tokenSlotOverrides: [...balanceOverrides.slots, ...allowanceOverrides.slots],
 });
 ```
 
-Balance slots are reusable per token/owner, and allowance slots are reusable per token/owner/spender for the block/state you trust. Discovery pre-sets `amount` to the exported `OVERRIDE_TOKEN_AMOUNT` sentinel, a non-max `10^50` value chosen so standard ERC-20 allowance decrements remain observable. Handcrafted override amounts must be below `uint256.max`; max allowance skips decrements, and max balances can overflow on incoming transfers. Deltas for real holdings still work for rebasing tokens like stETH; only dealing hypothetical balances can fail, reported in `unresolved`.
+Balance slots are reusable per token/owner, and allowance slots are reusable per token/owner/spender for the block/state you trust. Preparation pre-sets `amount` to the exported `OVERRIDE_TOKEN_AMOUNT` sentinel, a non-max `10^50` value chosen so standard ERC-20 allowance decrements remain observable. Handcrafted override amounts must be below `uint256.max`; max allowance skips decrements, and max balances can overflow on incoming transfers. Deltas for real holdings still work for rebasing tokens like stETH; only dealing hypothetical balances can fail, reported in `unresolved`.
 
-## Discovering requirements (optional)
+## Estimating asset requirements (optional)
 
-When you don't already know which balances and approvals a transaction needs, `sim.discoverRequirements()` measures them by forging generous state and observing per-call balance and allowance changes. Amounts are estimates measured under forged state and should be padded; pairs whose allowance is set inside the batch (approve or permit) are excluded, and measured allowance decreases are sanity-bounded by the token's gross outflow. Measurements discarded by that bound are reported under `unresolved.allowances`.
+When you don't already know which balances and approvals a transaction needs, `sim.estimateAssetRequirements()` measures them by forging generous state and observing per-call balance and allowance changes. Amounts are estimates measured under forged state and should be padded; pairs whose allowance is set inside the batch (approve or permit) are excluded, and measured allowance decreases are sanity-bounded by the token's gross outflow. Measurements discarded by that bound are reported under `unresolved.allowances`.
 
 ```ts
 import { TxSimulator } from "viem-tx-sim";
 
 const sim = TxSimulator.create({ client });
-const requirements = await sim.discoverRequirements({ from, calls });
+const requirements = await sim.estimateAssetRequirements({ from, calls });
 // requirements.allowances -> [{ token, spender, amount }]
 // requirements.balances   -> [{ token, amount }]
 // requirements.slots      -> feed to sim.simulate({ ..., tokenSlotOverrides })
@@ -168,11 +168,11 @@ Situations the simulation does not cover, or where the preview can differ from r
 
 **An adversarial contract can detect it is being simulated** — via the code at `from`, the recognizable forged balances, or `eth_call` context — and behave differently in the real transaction. This is inherent to state-override simulation (centralized simulation APIs share it). Treat the preview as best-effort insight, not a security guarantee against malicious contracts.
 
-**Results are estimates against one block's state.** Deltas and discovered requirements reflect the chosen block; prices, liquidity, and allowances move before the real transaction lands. Pad amounts accordingly. Amounts from `sim.discoverRequirements()` are additionally measured under forged (very large) balances, so contracts that branch on the account's real balance can be measured on the wrong branch.
+**Results are estimates against one block's state.** Deltas and estimated asset requirements reflect the chosen block; prices, liquidity, and allowances move before the real transaction lands. Pad amounts accordingly. Amounts from `sim.estimateAssetRequirements()` are additionally measured under forged (very large) balances, so contracts that branch on the account's real balance can be measured on the wrong branch.
 
 **Asset coverage is native + `balanceOf(address)`.** Deltas track ETH and anything answering ERC-20-style `balanceOf` (an ERC-721 shows up as a count delta, without token IDs). ERC-1155 balances (`balanceOf(address,uint256)`) are not tracked. Tokens whose balance is computed rather than stored in one slot per holder (rebasing/share-based tokens like stETH) cannot be forged — slot discovery verifies before overriding and reports them in the `unresolved` list.
 
-**Candidate discovery follows the dry run.** Token candidates come from `eth_createAccessList` on the *unforged* calls; if that dry run reverts early, contracts that would only be touched later are not discovered, and their deltas are missed. Forging (or `discoverRequirements()`, which measures after forging) avoids most of this.
+**Candidate discovery follows the dry run.** Token candidates come from `eth_createAccessList` on the *unforged* calls; if that dry run reverts early, contracts that would only be touched later are not discovered, and their deltas are missed. Forging (or `estimateAssetRequirements()`, which measures after forging) avoids most of this.
 
 **RPC provider requirements.** The provider must support `eth_createAccessList` (including returning the access list for reverting calls) and `eth_call` with state overrides. Missing support surfaces as `AccessListUnsupportedError` / `StateOverrideUnsupportedError`.
 

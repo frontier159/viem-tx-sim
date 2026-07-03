@@ -65,20 +65,20 @@ mainnetDescribe("mainnet RPC integration", () => {
     });
 
     const blockNumber = mainnetBlockNumber();
-    const balanceDiscovery = await sim.discoverBalanceSlots({
+    const balanceOverrides = await sim.prepareBalanceOverrides({
       from: ANVIL_ACCOUNT,
       tokens: [USDC],
       blockNumber,
       debug: (event) => events.push(event),
     });
-    expect(balanceDiscovery.slots).toHaveLength(1);
-    expect(balanceDiscovery.unresolved).toEqual([]);
+    expect(balanceOverrides.slots).toHaveLength(1);
+    expect(balanceOverrides.unresolved).toEqual([]);
 
     const result = await sim.simulate({
       from: ANVIL_ACCOUNT,
       calls: [{ to: USDC, data }],
       blockNumber,
-      tokenSlotOverrides: balanceDiscovery.slots,
+      tokenSlotOverrides: balanceOverrides.slots,
       debug: (event) => events.push(event),
     });
 
@@ -105,21 +105,21 @@ mainnetDescribe("mainnet RPC integration", () => {
     });
     const sim = TxSimulator.create({ client });
     const blockNumber = mainnetBlockNumber();
-    const [balanceDiscovery, allowanceDiscovery] = await Promise.all([
-      sim.discoverBalanceSlots({
+    const [balanceOverrides, allowanceOverrides] = await Promise.all([
+      sim.prepareBalanceOverrides({
         from: ANVIL_ACCOUNT,
         tokens: [USDS],
         blockNumber,
       }),
-      sim.discoverAllowanceSlots({
+      sim.prepareAllowanceOverrides({
         from: ANVIL_ACCOUNT,
         pairs: [{ token: USDS, spender: SUSDS }],
         blockNumber,
       }),
     ]);
 
-    expect(balanceDiscovery).toEqual({ slots: USDS_BALANCE_SLOTS, unresolved: [] });
-    expect(allowanceDiscovery).toEqual({ slots: USDS_ALLOWANCE_SLOTS, unresolved: [] });
+    expect(balanceOverrides).toEqual({ slots: USDS_BALANCE_SLOTS, unresolved: [] });
+    expect(allowanceOverrides).toEqual({ slots: USDS_ALLOWANCE_SLOTS, unresolved: [] });
   });
 
   it("discovers USDS into sUSDS deposit requirements", async () => {
@@ -130,7 +130,7 @@ mainnetDescribe("mainnet RPC integration", () => {
       transport: http(MAINNET_RPC_URL),
     });
     const sim = TxSimulator.create({ client });
-    const requirements = await sim.discoverRequirements({
+    const requirements = await sim.estimateAssetRequirements({
       from: ANVIL_ACCOUNT,
       calls: [{ to: SUSDS, data: usdsDepositCalldata() }],
       blockNumber: mainnetBlockNumber(),

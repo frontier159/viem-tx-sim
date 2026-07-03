@@ -1,16 +1,16 @@
 import { DEFAULT_SIMULATION_GAS_LIMIT } from "./constants.js";
 import { InvalidSimulationInputError } from "./errors.js";
-import { discoverRequirements } from "./internal/requirements.js";
+import { estimateAssetRequirements } from "./internal/requirements.js";
 import { blockOptionsSpread, type ClientArgs } from "./internal/rpc.js";
 import { discoverCandidateAddresses, runSimulator } from "./internal/simulator.js";
-import { discoverAllowanceSlots, discoverBalanceSlots } from "./internal/slots.js";
+import { prepareAllowanceOverrides, prepareBalanceOverrides } from "./internal/slots.js";
 import type {
-  AllowanceSlotDiscovery,
-  BalanceSlotDiscovery,
-  DiscoverAllowanceSlotsArgs,
-  DiscoverBalanceSlotsArgs,
-  DiscoverRequirementsArgs,
-  DiscoveredRequirements,
+  PreparedAllowanceOverrides,
+  PreparedBalanceOverrides,
+  PrepareAllowanceOverridesArgs,
+  PrepareBalanceOverridesArgs,
+  EstimateAssetRequirementsArgs,
+  EstimatedAssetRequirements,
   SimulateArgs,
   SimulatedCall,
   SimulationResult,
@@ -36,7 +36,7 @@ export interface TxSimulator {
    *
    * This uses `eth_createAccessList` for candidate discovery and one `eth_call` with state
    * overrides that injects the simulator at `from`. It does not automatically forge balances or
-   * allowances; discovery methods return ready-to-use `tokenSlotOverrides` for view-only or
+   * allowances; preparation methods return ready-to-use `tokenSlotOverrides` for view-only or
    * unfunded accounts. Transaction reverts return `status: "reverted"` instead of throwing.
    *
    * @throws InvalidSimulationInputError when `calls` is empty.
@@ -56,7 +56,7 @@ export interface TxSimulator {
   simulate: (args: SimulateArgs) => Promise<SimulationResult>;
 
   /**
-   * Discovers ERC-20 balance storage slots for tokens owned by `from`.
+   * Prepares ERC-20 balance storage overrides for tokens owned by `from`.
    *
    * Each token is probed with RPC-only access lists and sentinel state overrides. Tokens the
    * simulator cannot `deal` by verified storage write are returned in `unresolved` rather than
@@ -64,10 +64,10 @@ export interface TxSimulator {
    *
    * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
    */
-  discoverBalanceSlots: (args: DiscoverBalanceSlotsArgs) => Promise<BalanceSlotDiscovery>;
+  prepareBalanceOverrides: (args: PrepareBalanceOverridesArgs) => Promise<PreparedBalanceOverrides>;
 
   /**
-   * Discovers ERC-20 allowance storage slots for token/spender pairs owned by `from`.
+   * Prepares ERC-20 allowance storage overrides for token/spender pairs owned by `from`.
    *
    * Standard Solidity allowance layouts are inferred after one verified probe per token where
    * possible; non-standard layouts fall back to per-pair probing. Pairs the simulator cannot `deal`
@@ -75,10 +75,12 @@ export interface TxSimulator {
    *
    * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
    */
-  discoverAllowanceSlots: (args: DiscoverAllowanceSlotsArgs) => Promise<AllowanceSlotDiscovery>;
+  prepareAllowanceOverrides: (
+    args: PrepareAllowanceOverridesArgs,
+  ) => Promise<PreparedAllowanceOverrides>;
 
   /**
-   * Measures required balances and approvals by forging generous state and observing outflows.
+   * Estimates required balances and approvals by forging generous state and observing outflows.
    *
    * Use this when the tokens or spenders are not known ahead of time. Returned amounts are measured
    * under forged balances/allowances and should be padded before display or transaction assembly;
@@ -89,7 +91,9 @@ export interface TxSimulator {
    * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides or
    * returns undecodable simulator output.
    */
-  discoverRequirements: (args: DiscoverRequirementsArgs) => Promise<DiscoveredRequirements>;
+  estimateAssetRequirements: (
+    args: EstimateAssetRequirementsArgs,
+  ) => Promise<EstimatedAssetRequirements>;
 }
 
 /** Factory for {@link TxSimulator} instances bound to one viem public client. */
@@ -127,12 +131,12 @@ export const TxSimulator = {
 
     return {
       simulate: (args) => runSimulate({ ...args, ...revertDefaults(args), client: bound.client }),
-      discoverBalanceSlots: (args) =>
-        discoverBalanceSlots({ ...args, ...defaults(args), client: bound.client }),
-      discoverAllowanceSlots: (args) =>
-        discoverAllowanceSlots({ ...args, ...defaults(args), client: bound.client }),
-      discoverRequirements: (args) =>
-        discoverRequirements({ ...args, ...revertDefaults(args), client: bound.client }),
+      prepareBalanceOverrides: (args) =>
+        prepareBalanceOverrides({ ...args, ...defaults(args), client: bound.client }),
+      prepareAllowanceOverrides: (args) =>
+        prepareAllowanceOverrides({ ...args, ...defaults(args), client: bound.client }),
+      estimateAssetRequirements: (args) =>
+        estimateAssetRequirements({ ...args, ...revertDefaults(args), client: bound.client }),
     };
   },
 };

@@ -5,7 +5,7 @@ import { TxSimulator, type SimulationDebugEvent } from "../src/index.js";
 import { artifact } from "./helpers/artifacts.js";
 import { type AnvilTestContext, startAnvil } from "./helpers/anvil.js";
 
-describe("discoverRequirements", () => {
+describe("estimateAssetRequirements", () => {
   let ctx: AnvilTestContext;
   let sim: TxSimulator;
 
@@ -27,7 +27,7 @@ describe("discoverRequirements", () => {
       args: [500n],
     });
 
-    const requirements = await sim.discoverRequirements({
+    const requirements = await sim.estimateAssetRequirements({
       from: ctx.account.address,
       calls: [{ to: vault.address, data }],
     });
@@ -61,7 +61,7 @@ describe("discoverRequirements", () => {
       args: [token.address, 250n],
     });
 
-    const requirements = await sim.discoverRequirements({
+    const requirements = await sim.estimateAssetRequirements({
       from: ctx.account.address,
       calls: [
         { to: spenderA.address, data: pullA },
@@ -93,7 +93,7 @@ describe("discoverRequirements", () => {
       args: [token.address, 40n],
     });
 
-    const requirements = await sim.discoverRequirements({
+    const requirements = await sim.estimateAssetRequirements({
       from: ctx.account.address,
       calls: [
         { to: spender.address, data: pull },
@@ -118,7 +118,7 @@ describe("discoverRequirements", () => {
       args: [token.address, 400n],
     });
 
-    const requirements = await sim.discoverRequirements({
+    const requirements = await sim.estimateAssetRequirements({
       from: ctx.account.address,
       calls: [
         { to: token.address, data: approve },
@@ -149,7 +149,7 @@ describe("discoverRequirements", () => {
       args: [token.address, 400n],
     });
 
-    const requirements = await sim.discoverRequirements({
+    const requirements = await sim.estimateAssetRequirements({
       from: ctx.account.address,
       calls: [
         { to: token.address, data: permit },
@@ -182,7 +182,7 @@ describe("discoverRequirements", () => {
       args: [token.address, 400n],
     });
 
-    const requirements = await sim.discoverRequirements({
+    const requirements = await sim.estimateAssetRequirements({
       from: ctx.account.address,
       calls: [
         { to: relayer.address, data: relay },
@@ -212,7 +212,7 @@ describe("discoverRequirements", () => {
       args: [token.address, 100n],
     });
 
-    const requirements = await sim.discoverRequirements({
+    const requirements = await sim.estimateAssetRequirements({
       from: ctx.account.address,
       calls: [
         { to: spender.address, data: pull },
@@ -246,7 +246,7 @@ describe("discoverRequirements", () => {
       args: [token.address, 250n],
     });
 
-    await sim.discoverRequirements({
+    await sim.estimateAssetRequirements({
       from: ctx.account.address,
       calls: [
         { to: spenderA.address, data: pullA },
@@ -279,7 +279,7 @@ describe("discoverRequirements", () => {
       args: [token.address, 250n],
     });
 
-    const requirements = await sim.discoverRequirements({
+    const requirements = await sim.estimateAssetRequirements({
       from: ctx.account.address,
       calls: [
         { to: spenderA.address, data: pullA },
@@ -308,7 +308,7 @@ describe("discoverRequirements", () => {
 
   it("measures native value requirements", async () => {
     const value = parseEther("1");
-    const requirements = await sim.discoverRequirements({
+    const requirements = await sim.estimateAssetRequirements({
       from: ctx.account.address,
       calls: [{ to: ctx.secondAccount.address, data: "0x", value }],
     });

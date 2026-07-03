@@ -4,11 +4,11 @@ import { decodeFunctionData, parseAbi } from "viem";
 import { InvalidSimulationInputError } from "../errors.js";
 import type {
   AllowanceSlotPair,
-  DiscoveredRequirements,
-  DiscoverRequirementsArgs,
+  EstimatedAssetRequirements,
+  EstimateAssetRequirementsArgs,
   SimulatedCall,
 } from "../types.js";
-import { discoverAllowanceSlots, discoverBalanceSlots } from "./slots.js";
+import { prepareAllowanceOverrides, prepareBalanceOverrides } from "./slots.js";
 import { addressKey, uniqueAddresses } from "./data.js";
 import type { ClientArgs } from "./rpc.js";
 import { blockOptionsSpread } from "./rpc.js";
@@ -24,12 +24,12 @@ type AllowanceProbe = {
   spender: Address;
 };
 
-/** @internal Implements {@link TxSimulator.discoverRequirements}. Prefer the instance API from the package root. */
-export async function discoverRequirements(
-  args: DiscoverRequirementsArgs & ClientArgs,
-): Promise<DiscoveredRequirements> {
+/** @internal Implements {@link TxSimulator.estimateAssetRequirements}. Prefer the instance API from the package root. */
+export async function estimateAssetRequirements(
+  args: EstimateAssetRequirementsArgs & ClientArgs,
+): Promise<EstimatedAssetRequirements> {
   if (args.calls.length === 0) {
-    throw new InvalidSimulationInputError("discoverRequirements requires at least one call.");
+    throw new InvalidSimulationInputError("estimateAssetRequirements requires at least one call.");
   }
 
   const calls = args.calls.map((call) => ({
@@ -61,7 +61,7 @@ export async function discoverRequirements(
     (address) => addressKey(address) !== addressKey(args.from),
   );
 
-  const balanceDiscovery = await discoverBalanceSlots({
+  const balanceOverrides = await prepareBalanceOverrides({
     client: args.client,
     from: args.from,
     tokens,
@@ -69,7 +69,7 @@ export async function discoverRequirements(
     debug: args.debug,
     ...blockOptionsSpread(args),
   });
-  const allowanceDiscovery = await discoverAllowanceSlots({
+  const allowanceOverrides = await prepareAllowanceOverrides({
     client: args.client,
     from: args.from,
     pairs: allowancePairs(tokens, spenders),
@@ -77,8 +77,8 @@ export async function discoverRequirements(
     debug: args.debug,
     ...blockOptionsSpread(args),
   });
-  const balanceSlots = balanceDiscovery.slots;
-  const allowanceSlots = allowanceDiscovery.slots;
+  const balanceSlots = balanceOverrides.slots;
+  const allowanceSlots = allowanceOverrides.slots;
   const allowanceProbes = allowanceSlots.map((slot) => ({
     token: slot.token,
     spender: slot.spender,
@@ -115,8 +115,8 @@ export async function discoverRequirements(
     allowances: measuredAllowances.allowances,
     slots: tokenSlotOverrides,
     unresolved: {
-      balanceSlots: balanceDiscovery.unresolved,
-      allowanceSlots: allowanceDiscovery.unresolved,
+      balanceSlots: balanceOverrides.unresolved,
+      allowanceSlots: allowanceOverrides.unresolved,
       allowances: measuredAllowances.discarded,
     },
   };
@@ -153,9 +153,9 @@ function requiredBalances(
   candidates: readonly Address[],
   tokens: readonly Address[],
   maxTokenOutflows: readonly bigint[],
-): DiscoveredRequirements["balances"] {
+): EstimatedAssetRequirements["balances"] {
   const tokenKeys = new Set(tokens.map(addressKey));
-  const balances: DiscoveredRequirements["balances"] = [];
+  const balances: EstimatedAssetRequirements["balances"] = [];
   for (let i = 0; i < candidates.length; ++i) {
     const amount = maxTokenOutflows[i] ?? 0n;
     const token = candidates[i];
@@ -174,10 +174,10 @@ function requiredAllowances(
   candidates: readonly Address[],
   maxTokenOutflows: readonly bigint[],
 ): {
-  allowances: DiscoveredRequirements["allowances"];
+  allowances: EstimatedAssetRequirements["allowances"];
   discarded: AllowanceSlotPair[];
 } {
-  const allowances: DiscoveredRequirements["allowances"] = [];
+  const allowances: EstimatedAssetRequirements["allowances"] = [];
   const discarded: AllowanceSlotPair[] = [];
   const stride = calls.length + 1;
 

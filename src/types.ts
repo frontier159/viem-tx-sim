@@ -45,13 +45,13 @@ type SimulationOptions = {
 };
 
 /**
- * Storage-slot override: the unit that flows from discovery methods into
+ * Storage-slot override: the unit that flows from preparation methods into
  * `simulate({ tokenSlotOverrides })`.
  */
 export type TokenSlotOverride = {
   /** Token contract whose storage should be overridden. */
   token: Address;
-  /** Storage slot to write. Usually discovered by `discoverBalanceSlots` or `discoverAllowanceSlots`. */
+  /** Storage slot to write. Usually prepared by `prepareBalanceOverrides` or `prepareAllowanceOverrides`. */
   slot: Hex;
   /** Value written to the slot. Must be below uint256 max. */
   amount: bigint;
@@ -62,14 +62,14 @@ export type AllowanceSlot = TokenSlotOverride & {
   spender: Address;
 };
 
-/** Token/spender pair whose allowance slot should be discovered or reported unresolved. */
+/** Token/spender pair whose allowance override should be prepared or reported unresolved. */
 export type AllowanceSlotPair = {
   token: Address;
   spender: Address;
 };
 
-/** Result of balance-slot discovery. */
-export type BalanceSlotDiscovery = {
+/** Prepared balance storage overrides. */
+export type PreparedBalanceOverrides = {
   /** Verified slots that can be passed to `simulate` as `tokenSlotOverrides`. */
   slots: TokenSlotOverride[];
   /**
@@ -80,8 +80,8 @@ export type BalanceSlotDiscovery = {
   unresolved: Address[];
 };
 
-/** Result of allowance-slot discovery. */
-export type AllowanceSlotDiscovery = {
+/** Prepared allowance storage overrides. */
+export type PreparedAllowanceOverrides = {
   /** Verified slots that can be passed to `simulate` as `tokenSlotOverrides`. */
   slots: AllowanceSlot[];
   /** Pairs the simulator could not `deal` as allowances because no slot was sentinel-verified. */
@@ -106,24 +106,24 @@ export type SimulateArgs = SimulationOptions & {
   errorAbi?: Abi;
 };
 
-/** Arguments for `TxSimulator.discoverBalanceSlots`. */
-export type DiscoverBalanceSlotsArgs = SimulationOptions & {
+/** Arguments for `TxSimulator.prepareBalanceOverrides`. */
+export type PrepareBalanceOverridesArgs = SimulationOptions & {
   /** Account whose token balance storage slots should be found. */
   from: Address;
   /** Tokens to probe for ERC-20-style balance slots. */
   tokens: readonly Address[];
 };
 
-/** Arguments for `TxSimulator.discoverAllowanceSlots`. */
-export type DiscoverAllowanceSlotsArgs = SimulationOptions & {
+/** Arguments for `TxSimulator.prepareAllowanceOverrides`. */
+export type PrepareAllowanceOverridesArgs = SimulationOptions & {
   /** Account whose allowance storage slots should be found. */
   from: Address;
   /** Token/spender allowance pairs to probe. */
   pairs: readonly AllowanceSlotPair[];
 };
 
-/** Arguments for `TxSimulator.discoverRequirements`. */
-export type DiscoverRequirementsArgs = SimulationOptions & {
+/** Arguments for `TxSimulator.estimateAssetRequirements`. */
+export type EstimateAssetRequirementsArgs = SimulationOptions & {
   /** Account whose balances and approvals should be measured. */
   from: Address;
   /** One call or an ERC-5792-style sequential batch. Must contain at least one call. */
@@ -156,14 +156,14 @@ export type RequiredAllowance = {
   amount: bigint;
 };
 
-type DiscoveredRequirementsBase = {
+type EstimatedAssetRequirementsBase = {
   /** Maximum cumulative native outflow across call boundaries. */
   native: bigint;
   /** Minimum token balances needed to execute the observed path. */
   balances: RequiredBalance[];
   /** Minimum allowances needed before the batch, excluding allowances set inside the batch. */
   allowances: RequiredAllowance[];
-  /** Verified slots discovered along the way; pass to `simulate` as `tokenSlotOverrides`. */
+  /** Verified slots prepared along the way; pass to `simulate` as `tokenSlotOverrides`. */
   slots: TokenSlotOverride[];
   /** Values the requirement probe could not verify or could not trust. */
   unresolved: {
@@ -180,12 +180,12 @@ type DiscoveredRequirementsBase = {
 };
 
 /** Successful requirement measurement. */
-export type DiscoveredRequirementsSuccess = DiscoveredRequirementsBase & {
+export type EstimatedAssetRequirementsSuccess = EstimatedAssetRequirementsBase & {
   status: "success";
 };
 
 /** Requirement measurement that still observed a transaction revert after forging available state. */
-export type DiscoveredRequirementsReverted = DiscoveredRequirementsBase & {
+export type EstimatedAssetRequirementsReverted = EstimatedAssetRequirementsBase & {
   status: "reverted";
   /** Raw EVM revert data from the failing simulated call. */
   revertData: Hex;
@@ -200,7 +200,9 @@ export type DiscoveredRequirementsReverted = DiscoveredRequirementsBase & {
 };
 
 /** Requirement measurement result; check `status` before reading revert fields. */
-export type DiscoveredRequirements = DiscoveredRequirementsSuccess | DiscoveredRequirementsReverted;
+export type EstimatedAssetRequirements =
+  | EstimatedAssetRequirementsSuccess
+  | EstimatedAssetRequirementsReverted;
 
 /** Raw balance delta for native ETH or an ERC-20-style `balanceOf(address)` asset. */
 export type AssetBalanceDelta = {

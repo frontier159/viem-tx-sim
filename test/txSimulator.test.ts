@@ -84,9 +84,9 @@ describe("TxSimulator", () => {
 
 const fake: TxSimulator = {
   simulate: async () => ({ status: "success", assetBalanceDeltas: [] }),
-  discoverBalanceSlots: async () => ({ slots: [], unresolved: [] }),
-  discoverAllowanceSlots: async () => ({ slots: [], unresolved: [] }),
-  discoverRequirements: async () => ({
+  prepareBalanceOverrides: async () => ({ slots: [], unresolved: [] }),
+  prepareAllowanceOverrides: async () => ({ slots: [], unresolved: [] }),
+  estimateAssetRequirements: async () => ({
     status: "success",
     native: 0n,
     balances: [],
