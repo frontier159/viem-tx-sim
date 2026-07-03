@@ -1,5 +1,17 @@
 # viem-tx-sim
 
+- [Motivation](#motivation)
+- [Mental model](#mental-model)
+- [API at a glance](#api-at-a-glance)
+- [Getting started](#getting-started)
+- [Preparing balance and allowance overrides](#preparing-balance-and-allowance-overrides)
+- [Estimating asset requirements (optional)](#estimating-asset-requirements-optional)
+- [Debugging](#debugging)
+- [Decoding Reverts](#decoding-reverts)
+- [Known limitations](#known-limitations)
+- [Development](#development)
+- [Scope](#scope)
+
 RPC-only transaction simulation helpers for [viem](https://viem.sh) applications: preview the asset changes of a transaction (or an ERC-5792 batch) before anyone signs it, using nothing but standard JSON-RPC.
 
 ## Motivation
@@ -12,6 +24,39 @@ Every wallet shows "asset changes" before you sign. Most do it by sending your d
 2. `sim.simulate()` takes explicit balance queries and performs one `eth_call` with state overrides, injecting a never-deployed `TxSimulator` contract **at the user's own address**. Because the simulator runs as the user, `address(this)` and `msg.sender` are the real account, so balance reads, allowance checks, and `msg.sender`-gated logic behave exactly as they would in the real transaction. Batch calls run sequentially in one EVM context, so an approval in call 1 is visible to a swap in call 2.
 
 The core simulation is one RPC call when you already know what to observe. The wallet discovery flow is N access lists + one token-filter call + one simulation for an N-call batch. Zero servers, zero trust assumptions. See [docs/motivation.md](https://github.com/frontier159/viem-tx-sim/blob/main/docs/motivation.md) for the design's origin story, including how Permit2's ERC-1271 path and proxy-token storage are handled.
+
+## Mental model
+
+Everything passed to `sim.simulate()` is one of three explicit inputs: `calls` are what executes, `balanceQueries` are what you observe, and `tokenSlotOverrides` are the state assumptions you want to forge. `simulate()` does not discover tokens, retry, or forge balances by itself. The helper namespaces only build those data inputs: `balanceQueries.*` builds observations, and `tokenOverrides.*` builds assumptions.
+
+## API at a glance
+
+```ts
+const sim = TxSimulator.create({ client, gas, debug, errorAbi });
+
+const result = await sim.simulate({
+  from,
+  calls, // SimulatedCall[]
+  balanceQueries, // BalanceQuery[]
+  tokenSlotOverrides, // TokenSlotOverride[] | undefined
+  gas,
+  debug,
+  errorAbi,
+  blockNumber,
+  blockTag,
+});
+// success -> { status: "success", balanceDeltas, unresolved }
+// reverted -> success fields + { revertData, failingCallIndex, revertReason?, revertError? }
+
+await sim.balanceQueries.forUser({ from, calls }); // BalanceQuery[]
+await sim.balanceQueries.discoverErc20s({ from, calls }); // Address[]
+await sim.tokenOverrides.forBalances({ from, tokens }); // PreparedBalanceOverrides
+await sim.tokenOverrides.forAllowances({ from, pairs }); // PreparedAllowanceOverrides
+await sim.tokenOverrides.estimateRequirements({ from, calls }); // EstimatedAssetRequirements
+
+// Exports: DEFAULT_SIMULATION_GAS_LIMIT, OVERRIDE_TOKEN_AMOUNT, TxSimError,
+// AccessListUnsupportedError, StateOverrideUnsupportedError, InvalidSimulationInputError.
+```
 
 ## Getting started
 
@@ -67,9 +112,9 @@ const result = await sim.simulate({
 console.log(result.status); // "success"
 console.log(result.balanceDeltas);
 // [
-//   { asset: "native", account: user, before: 1n..., after: 1n..., delta: 0n },
-//   { asset: "0xdC03...384F", account: user, before: 1000n..., after: 0n, delta: -1000n... },
-//   { asset: "0xa393...7fbD", account: user, before: 0n, after: 9xx...n, delta: 9xx...n },
+//   { asset: "native", account: user, before: 1n..., after: 1n..., delta: 0n, byCall: [0n, 0n] },
+//   { asset: "0xdC03...384F", account: user, before: 1000n..., after: 0n, delta: -1000n..., byCall: [0n, -1000n...] },
+//   { asset: "0xa393...7fbD", account: user, before: 0n, after: 9xx...n, delta: 9xx...n, byCall: [0n, 9xx...n] },
 // ]
 ```
 
@@ -249,4 +294,4 @@ Set `MAINNET_BLOCK_NUMBER` to override the pinned default block.
 
 ## Scope
 
-V1 returns explicit raw balance observations only. Token metadata, token lists, indexers, centralized simulation APIs, approval UX, and price enrichment are intentionally out of scope. The library never constructs or signs permits or EIP-712 payloads; callers bring fully signed calldata, and already-signed permit calls simulate as ordinary calls.
+The library returns explicit raw balance observations only. Token metadata, token lists, indexers, centralized simulation APIs, approval UX, and price enrichment are intentionally out of scope. The library never constructs or signs permits or EIP-712 payloads; callers bring fully signed calldata, and already-signed permit calls simulate as ordinary calls.

@@ -1,6 +1,6 @@
 {
   "name": "viem-tx-sim",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "RPC-only transaction simulation helpers for viem applications.",
   "keywords": [
     "eth_call",
