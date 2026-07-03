@@ -49,7 +49,8 @@ Allowance base-slot inference lives in `src/internal/slots.ts`; non-standard lay
 Tests pin exact RPC call counts through debug events; refactors must not add hidden RPC calls.
 Public `simulate()` emits zero `eth_createAccessList` calls and exactly one `txSimulator.simulate` `eth_call`; discovery lives in helpers.
 Tests pin exact balance before/after/delta observations, estimated requirement amounts, and reverted-call reporting.
-Checkpoint math depends on `allowanceCheckpoints[probeIndex * (calls.length + 1) + callIndex]`.
+Checkpoint math for allowance and balance probes depends on `checkpoints[probeIndex * (calls.length + 1) + callIndex]`.
+`BalanceDelta.byCall` is index-aligned with calls, entries from a failing call onward are 0n, and `sum(byCall) === delta`.
 Candidate/result ordering must stay deterministic even when RPC calls are parallelized.
 The `10^50` sentinel must remain non-max so `transferFrom` allowance decreases are observable.
 Transaction reverts are returned as result status; infrastructure failures throw typed errors.

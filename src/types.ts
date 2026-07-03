@@ -27,6 +27,11 @@ export type BalanceDelta = {
   before: bigint;
   after: bigint;
   delta: bigint;
+  /**
+   * Signed change per call, index-aligned with `calls`. Sums to `delta`; on a
+   * revert, entries from the failing call onward are 0n.
+   */
+  byCall: readonly bigint[];
 };
 
 /** Structured event emitted before and after each RPC call when debug logging is enabled. */

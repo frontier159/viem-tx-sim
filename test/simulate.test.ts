@@ -53,9 +53,36 @@ describe("viem-tx-sim", () => {
         before,
         after: before - value,
         delta: -value,
+        byCall: [-value],
       },
     ]);
     expect(result.unresolved).toEqual([]);
+  });
+
+  it("attributes native balance changes per call", async () => {
+    const first = parseEther("1");
+    const second = parseEther("0.5");
+    const before = await ctx.publicClient.getBalance({ address: ctx.account.address });
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [
+        { to: ctx.secondAccount.address, data: "0x", value: first },
+        { to: ctx.secondAccount.address, data: "0x", value: second },
+      ],
+      balanceQueries: [{ asset: "native", account: ctx.account.address }],
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.balanceDeltas).toEqual([
+      {
+        asset: "native",
+        account: ctx.account.address,
+        before,
+        after: before - first - second,
+        delta: -(first + second),
+        byCall: [-first, -second],
+      },
+    ]);
   });
 
   it("emits debug events for simulator RPC calls", async () => {
@@ -111,6 +138,7 @@ describe("viem-tx-sim", () => {
         before: 1_000n,
         after: 750n,
         delta: -250n,
+        byCall: [-250n],
       },
       {
         asset: token.address,
@@ -118,6 +146,7 @@ describe("viem-tx-sim", () => {
         before: 0n,
         after: 250n,
         delta: 250n,
+        byCall: [250n],
       },
       {
         asset: token.address,
@@ -125,9 +154,39 @@ describe("viem-tx-sim", () => {
         before: 0n,
         after: 0n,
         delta: 0n,
+        byCall: [0n],
       },
     ]);
     expect(result.unresolved).toEqual([]);
+  });
+
+  it("reports zero per-call balance changes for unaffected calls", async () => {
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    await write(token, "mint", [ctx.account.address, 1_000n]);
+
+    const transfer = encodeFunctionData({
+      abi: token.abi,
+      functionName: "transfer",
+      args: [ctx.secondAccount.address, 50n],
+    });
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [
+        { to: ctx.secondAccount.address, data: "0x" },
+        { to: token.address, data: transfer },
+      ],
+      balanceQueries: tokenQueries(token.address),
+    });
+
+    expect(result.status).toBe("success");
+    expect(balanceDelta(result, token.address)).toEqual({
+      asset: token.address,
+      account: ctx.account.address,
+      before: 1_000n,
+      after: 950n,
+      delta: -50n,
+      byCall: [0n, -50n],
+    });
   });
 
   it("reports unresolved balance queries", async () => {
@@ -165,6 +224,7 @@ describe("viem-tx-sim", () => {
       before: 1_000n,
       after: 750n,
       delta: -250n,
+      byCall: [-250n],
     });
   });
 
@@ -189,6 +249,7 @@ describe("viem-tx-sim", () => {
       before: 0n,
       after: 1n,
       delta: 1n,
+      byCall: [1n],
     });
   });
 
@@ -220,6 +281,7 @@ describe("viem-tx-sim", () => {
         before: 1_000n,
         after: 700n,
         delta: -300n,
+        byCall: [-300n],
       },
       {
         asset: token.address,
@@ -227,6 +289,7 @@ describe("viem-tx-sim", () => {
         before: 0n,
         after: 300n,
         delta: 300n,
+        byCall: [300n],
       },
     ]);
   });
@@ -271,6 +334,7 @@ describe("viem-tx-sim", () => {
       before: 1_000n,
       after: 679n,
       delta: -321n,
+      byCall: [-321n],
     });
     expect(
       events.filter((event) => event.step === "txSimulator.simulate" && event.phase === "start"),
@@ -349,6 +413,7 @@ describe("viem-tx-sim", () => {
       before: 1_000n,
       after: 877n,
       delta: -123n,
+      byCall: [-123n],
     });
     expect(
       events.filter(
@@ -430,6 +495,7 @@ describe("viem-tx-sim", () => {
       before: OVERRIDE_TOKEN_AMOUNT,
       after: OVERRIDE_TOKEN_AMOUNT - 500n,
       delta: -500n,
+      byCall: [0n, -500n],
     });
   });
 
@@ -477,7 +543,52 @@ describe("viem-tx-sim", () => {
       before: 1_000n,
       after: 600n,
       delta: -400n,
+      byCall: [0n, -400n],
     });
+  });
+
+  it("attributes token balance changes per call", async () => {
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy("RefundingSpender.sol", "RefundingSpender");
+    await write(token, "mint", [ctx.account.address, 1_000n]);
+
+    const approve = encodeFunctionData({
+      abi: token.abi,
+      functionName: "approve",
+      args: [spender.address, 400n],
+    });
+    const pull = encodeFunctionData({
+      abi: spender.abi,
+      functionName: "pull",
+      args: [token.address, 300n],
+    });
+    const refund = encodeFunctionData({
+      abi: spender.abi,
+      functionName: "refund",
+      args: [token.address, 100n],
+    });
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [
+        { to: token.address, data: approve },
+        { to: spender.address, data: pull },
+        { to: spender.address, data: refund },
+      ],
+      balanceQueries: tokenQueries(token.address),
+    });
+
+    expect(result.status).toBe("success");
+    const delta = balanceDelta(result, token.address);
+    if (delta === undefined) throw new Error("expected balance delta");
+    expect(delta).toEqual({
+      asset: token.address,
+      account: ctx.account.address,
+      before: 1_000n,
+      after: 800n,
+      delta: -200n,
+      byCall: [0n, -300n, 100n],
+    });
+    expect(delta.byCall.reduce((sum, value) => sum + value, 0n)).toBe(delta.delta);
   });
 
   it("supports Permit2-style ERC-1271 signature checks caused by code injection", async () => {
@@ -513,6 +624,7 @@ describe("viem-tx-sim", () => {
       before: 1_000n,
       after: 877n,
       delta: -123n,
+      byCall: [0n, -123n],
     });
   });
 
@@ -576,6 +688,7 @@ describe("viem-tx-sim", () => {
       before: OVERRIDE_TOKEN_AMOUNT,
       after: OVERRIDE_TOKEN_AMOUNT - 77n,
       delta: -77n,
+      byCall: [0n, -77n],
     });
   });
 
@@ -610,6 +723,7 @@ describe("viem-tx-sim", () => {
       before: OVERRIDE_TOKEN_AMOUNT,
       after: OVERRIDE_TOKEN_AMOUNT - 200n,
       delta: -200n,
+      byCall: [-200n],
     });
   });
 
@@ -730,17 +844,23 @@ describe("viem-tx-sim", () => {
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const target = await deploy("RevertingTarget.sol", "RevertingTarget");
     await write(token, "mint", [ctx.account.address, 1_000n]);
-    const transfer = encodeFunctionData({
+    const transfer100 = encodeFunctionData({
       abi: token.abi,
       functionName: "transfer",
       args: [ctx.secondAccount.address, 100n],
+    });
+    const transfer50 = encodeFunctionData({
+      abi: token.abi,
+      functionName: "transfer",
+      args: [ctx.secondAccount.address, 50n],
     });
 
     const result = await sim.simulate({
       from: ctx.account.address,
       calls: [
-        { to: token.address, data: transfer },
+        { to: token.address, data: transfer100 },
         { to: target.address, data: "0x12345678" },
+        { to: token.address, data: transfer50 },
       ],
       balanceQueries: [
         { asset: token.address, account: ctx.account.address },
@@ -758,6 +878,7 @@ describe("viem-tx-sim", () => {
         before: 1_000n,
         after: 900n,
         delta: -100n,
+        byCall: [-100n, 0n, 0n],
       },
       {
         asset: token.address,
@@ -765,6 +886,7 @@ describe("viem-tx-sim", () => {
         before: 0n,
         after: 100n,
         delta: 100n,
+        byCall: [100n, 0n, 0n],
       },
     ]);
   });

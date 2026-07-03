@@ -35,8 +35,7 @@ type ProbeData = {
   maxTokenOutflows: readonly bigint[];
   maxNativeOutflow: bigint;
   allowanceCheckpoints: readonly bigint[];
-  balanceBefore: readonly bigint[];
-  balanceAfter: readonly bigint[];
+  balanceCheckpoints: readonly bigint[];
   balanceProbeOk: readonly boolean[];
 };
 
@@ -59,7 +58,7 @@ const txSimulatorAbi = parseAbi([
   "struct SimulatedCall { address to; uint256 value; bytes data; }",
   "struct AllowanceProbe { address token; address spender; }",
   "struct BalanceProbe { address token; address account; }",
-  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; int256 nativeDelta; address[] observedTokens; address[] deltaTokens; int256[] tokenDeltas; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; uint256[] balanceBefore; uint256[] balanceAfter; bool[] balanceProbeOk; }",
+  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; int256 nativeDelta; address[] observedTokens; address[] deltaTokens; int256[] tokenDeltas; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; uint256[] balanceCheckpoints; bool[] balanceProbeOk; }",
   "function simulate(SimulatedCall[] calls, address[] candidates, AllowanceProbe[] probes, BalanceProbe[] balanceProbes) returns (SimulationResult)",
   "function isValidSignature(bytes32 hash, bytes signature) view returns (bytes4)",
 ]);
@@ -157,8 +156,7 @@ export async function runSimulator(
     maxTokenOutflows: result.maxTokenOutflows,
     maxNativeOutflow: result.maxNativeOutflow,
     allowanceCheckpoints: result.allowanceCheckpoints,
-    balanceBefore: result.balanceBefore,
-    balanceAfter: result.balanceAfter,
+    balanceCheckpoints: result.balanceCheckpoints,
     balanceProbeOk: result.balanceProbeOk,
   };
 

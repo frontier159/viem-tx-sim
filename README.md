@@ -73,7 +73,7 @@ console.log(result.balanceDeltas);
 // ]
 ```
 
-`balanceDeltas` mirror your `balanceQueries` in order, including zero deltas, with raw `bigint` amounts in each asset's own units. A revert is returned as `status: "reverted"`, never thrown; checking `status` gives typed access to `revertData` and `failingCallIndex`.
+`balanceDeltas` mirror your `balanceQueries` in order, including zero deltas, with raw `bigint` amounts in each asset's own units. `byCall` is index-aligned with `calls`, sums to `delta`, and entries from a failing call onward are `0n` on a returned revert. A revert is returned as `status: "reverted"`, never thrown; checking `status` gives typed access to `revertData` and `failingCallIndex`.
 
 `sim.simulate()` observes only the balances you ask for and does not retry or forge state by itself. If `user` doesn't actually hold 1,000 USDS (say you're previewing for a view-only address), prepare and pass a balance override — see the next section. Query the tokens you forge if you want to observe them. `DEFAULT_SIMULATION_GAS_LIMIT` is exported for callers that want to pass or display the default 16M simulation gas budget.
 
@@ -86,9 +86,9 @@ const result = await sim.simulate({
   calls: partialBundle,
   balanceQueries,
 });
-const leftover = result.balanceDeltas.find(
+const leftoverAfterZap = result.balanceDeltas.find(
   (delta) => delta.asset === flashToken && delta.account === pluginAddress,
-)?.after;
+)?.byCall[0];
 ```
 
 For approvals, either include an `approve` / `permit` call in `calls` so later calls see it, or use `sim.tokenOverrides.forAllowances()` when you need to simulate already-approved state without sending an approval call.

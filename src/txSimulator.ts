@@ -209,7 +209,7 @@ async function runSimulate(args: SimulateArgs & ClientArgs): Promise<SimulationR
     gas: args.gas,
     ...(args.errorAbi !== undefined ? { errorAbi: args.errorAbi } : {}),
   });
-  const balances = buildBalanceResults(args.balanceQueries, result.probeData);
+  const balances = buildBalanceResults(args.balanceQueries, result.probeData, calls.length);
 
   if (result.status === "reverted") {
     return {
@@ -234,13 +234,14 @@ type BalanceResultFields = {
 function buildBalanceResults(
   queries: readonly BalanceQuery[],
   probeData: {
-    balanceBefore: readonly bigint[];
-    balanceAfter: readonly bigint[];
+    balanceCheckpoints: readonly bigint[];
     balanceProbeOk: readonly boolean[];
   },
+  callsLength: number,
 ): BalanceResultFields {
   const balanceDeltas: BalanceDelta[] = [];
   const unresolved: BalanceQuery[] = [];
+  const stride = callsLength + 1;
 
   for (let i = 0; i < queries.length; ++i) {
     const query = queries[i];
@@ -249,14 +250,22 @@ function buildBalanceResults(
       unresolved.push(query);
       continue;
     }
-    const before = probeData.balanceBefore[i] ?? 0n;
-    const after = probeData.balanceAfter[i] ?? 0n;
+    const base = i * stride;
+    const before = probeData.balanceCheckpoints[base] ?? 0n;
+    const after = probeData.balanceCheckpoints[base + callsLength] ?? 0n;
+    const byCall = Array.from(
+      { length: callsLength },
+      (_, callIndex) =>
+        (probeData.balanceCheckpoints[base + callIndex + 1] ?? 0n) -
+        (probeData.balanceCheckpoints[base + callIndex] ?? 0n),
+    );
     balanceDeltas.push({
       asset: query.asset,
       account: query.account,
       before,
       after,
       delta: after - before,
+      byCall,
     });
   }
 

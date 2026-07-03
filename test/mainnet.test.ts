@@ -175,6 +175,7 @@ mainnetDescribe("mainnet RPC integration", () => {
       delta: -USDS_DEPOSIT_ASSETS,
       before: OVERRIDE_TOKEN_AMOUNT,
       after: OVERRIDE_TOKEN_AMOUNT - USDS_DEPOSIT_ASSETS,
+      byCall: [-USDS_DEPOSIT_ASSETS],
     });
     expect(result.balanceDeltas).toEqual(
       expect.arrayContaining([
