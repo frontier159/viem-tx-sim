@@ -1,2 +1,7 @@
-allowBuilds:
-  esbuild: true
+# Supply-chain posture: dependency install scripts are blocked by default
+# (pnpm 10); esbuild is the single deliberate grant in package.json
+# (vitest needs it).
+# minimumReleaseAge keeps freshly-published versions out for 3 days —
+# compromised releases are typically unpublished within hours.
+# Escape hatch for an urgent security bump: minimumReleaseAgeExclude.
+minimumReleaseAge: 4320

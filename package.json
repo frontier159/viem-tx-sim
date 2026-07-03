@@ -39,12 +39,14 @@
     "build": "pnpm build:contracts && pnpm build:ts",
     "build:contracts": "forge build && node scripts/generate-txsim-bytecode.mjs",
     "build:ts": "tsc -p tsconfig.build.json",
+    "changeset": "changeset",
     "fmt": "oxfmt package.json .oxlintrc.json .oxfmtrc.json tsconfig.json tsconfig.build.json vitest.config.ts src test scripts",
     "fmt:check": "oxfmt --check package.json .oxlintrc.json .oxfmtrc.json tsconfig.json tsconfig.build.json vitest.config.ts src test scripts",
     "lint": "oxlint && oxfmt --check package.json .oxlintrc.json .oxfmtrc.json tsconfig.json tsconfig.build.json vitest.config.ts src test scripts",
     "lint:fix": "oxlint --fix && oxfmt package.json .oxlintrc.json .oxfmtrc.json tsconfig.json tsconfig.build.json vitest.config.ts src test scripts",
     "prepare": "pnpm build:ts",
     "prepublishOnly": "pnpm build:ts",
+    "release": "pnpm verify && pnpm changeset publish",
     "test": "pnpm build:contracts && vitest run",
     "test:debug": "VIEM_TX_SIM_DEBUG_RPC=1 pnpm test",
     "test:mainnet": "pnpm build:contracts && vitest run test/mainnet.test.ts",
@@ -52,6 +54,9 @@
     "verify": "pnpm lint && pnpm typecheck && pnpm build && pnpm test"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.4",
+    "@changesets/changelog-github": "^0.7.0",
+    "@changesets/cli": "^2.31.0",
     "@types/node": "^20.19.0",
     "oxfmt": "^0.57.0",
     "oxlint": "^1.72.0",
@@ -67,6 +72,9 @@
   },
   "packageManager": "pnpm@10.18.3",
   "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
     "overrides": {
       "ws": ">=8.21.0"
     }

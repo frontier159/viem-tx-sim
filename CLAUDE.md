@@ -70,6 +70,12 @@ Tests spawn one Anvil instance per test.
 Foundry nightly is expected because local access-list-on-revert behavior must match production RPCs.
 `pnpm test:mainnet` is opt-in and requires `MAINNET_RPC_URL`; `MAINNET_BLOCK_NUMBER` can override the pinned block.
 
+## Releasing
+
+Every behavior-changing PR should include a changeset (`pnpm changeset`).
+The changesets release workflow maintains the Version Packages PR; merging that PR publishes to npm with provenance through Trusted Publishing.
+This package is pre-1.0, so minor versions may include breaking changes until 1.0.0.
+
 ## Plans workflow
 
 Planned work lives in `plans/`.

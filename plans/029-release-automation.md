@@ -18,7 +18,7 @@
 - **Priority**: P2
 - **Effort**: S-M
 - **Risk**: LOW-MED (new workflow can only misfire at release time; nothing touches library code)
-- **Depends on**: plans/028
+- **Depends on**: plans/028 (DONE); run plans/030 first so the release workflow is born under its hardening conventions (SHA pins, least privilege)
 - **Category**: dx
 - **Planned at**: commit `b3390e0`, 2026-07-03
 
@@ -92,9 +92,13 @@ the executor — reported as operator TODO).
   "changelog": ["@changesets/changelog-github", { "repo": "frontier159/viem-tx-sim" }],
   "commit": false,
   "access": "public",
-  "baseBranch": "main"
+  "baseBranch": "master"
 }
 ```
+
+(The repo's default branch is **master** — verified 2026-07-03; an earlier
+draft of this plan said `main`, which would silently break the changesets
+action.)
 
 (`@changesets/changelog-github` needs `pnpm add -D` as well; if its GitHub
 token requirement at version time is unwanted, fall back to the default
@@ -128,7 +132,7 @@ Create `.github/workflows/release.yml`:
 name: release
 on:
   push:
-    branches: [main]
+    branches: [master]
 
 permissions:
   contents: write
@@ -140,35 +144,51 @@ jobs:
     if: github.repository == 'frontier159/viem-tx-sim'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@<sha> # vN.x.y — resolve per plan 030's SHA-pin convention
+      - uses: actions/setup-node@<sha> # vN.x.y
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
       - run: corepack enable
-      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: foundry-rs/foundry-toolchain@<sha> # v1.x.y
         with:
           version: <SAME pinned nightly as ci.yml — copy it verbatim>
       - run: pnpm install --frozen-lockfile
       - name: create version PR or publish
-        uses: changesets/action@v1
+        uses: changesets/action@<sha> # v1.x.y
         with:
           publish: pnpm release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
 ```
 
-Semantics: on main-branch pushes, the action opens/updates a "Version
+**Auth is OIDC Trusted Publishing, not a token** (maintainer decision,
+2026-07-03 supply-chain review): there is deliberately NO
+`NODE_AUTH_TOKEN`/`NPM_TOKEN` in this workflow. npm Trusted Publishing
+authenticates the publish via the workflow's OIDC identity
+(`id-token: write`, which provenance needs anyway) — no long-lived
+publishable credential exists to steal (the 2025 nx attack was stolen npm
+tokens). The operator configures the trust relationship on npmjs.com
+(Step 5). Fallback ONLY if Trusted Publishing cannot be configured for a
+first-publish package: add `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` with
+a granular automation token, and record a TODO to remove it once the trust
+relationship exists.
+
+Every action reference is SHA-pinned per plan 030's convention (resolve
+live against the official repos; keep version comments — Dependabot
+maintains them).
+
+Semantics: on master-branch pushes, the action opens/updates a "Version
 Packages" PR while changesets exist; when that PR merges, it runs
 `pnpm release` (full verify — including forge build via the pinned
-toolchain — then publish with provenance via `id-token: write` +
-`NPM_CONFIG_PROVENANCE`). The `if:` guard keeps forks from attempting any
-of this.
+toolchain — then publish with provenance). The `if:` guard keeps forks from
+attempting any of this.
 
 **Verify**: YAML parses; the foundry `version:` string is byte-identical to
-`ci.yml`'s (grep both files and diff the lines).
+`ci.yml`'s (grep both files and diff the lines);
+`grep -En "uses:.*@v[0-9]" .github/workflows/release.yml` → no matches;
+`grep -c "NODE_AUTH_TOKEN" .github/workflows/release.yml` → 0.
 
 ### Step 4: Document the release process
 
@@ -184,9 +204,13 @@ package is pre-1.0 so minor = breaking is acceptable until 1.0.0.
 Two things only the operator can do — list them prominently in your final
 report:
 
-1. **Create the `NPM_TOKEN` repo secret** (npm automation token with
-   publish rights; or configure npm Trusted Publishing for this repo, in
-   which case `NODE_AUTH_TOKEN` can be dropped from the workflow later).
+1. **Configure npm Trusted Publishing** for this package on npmjs.com:
+   trust relationship = repo `frontier159/viem-tx-sim`, workflow
+   `release.yml`, environment none. No repo secret is needed in the OIDC
+   flow. (Fallback only if Trusted Publishing can't be set up before the
+   first publish: create an `NPM_TOKEN` granular automation secret and add
+   `NODE_AUTH_TOKEN` to the workflow — then remove both once the trust
+   relationship exists.)
 2. **Confirm the `viem-tx-sim` name is available/claimed on npm** before
    the first Version Packages PR is merged (`npm view viem-tx-sim` →
    should 404 today; if taken, the package must be renamed or scoped, which
@@ -203,10 +227,10 @@ gates are syntax, toolchain parity with ci.yml, and the fork guard.
 - [ ] `pnpm verify` exits 0
 - [ ] `.changeset/config.json` exists with `access: public`; `@changesets/cli` in devDependencies
 - [ ] `pnpm changeset version` rehearsal succeeded and was fully reverted (version still `0.1.0`, no stray changeset .md files)
-- [ ] `.github/workflows/release.yml` exists: fork guard, pinned foundry version identical to ci.yml, `id-token: write`, provenance env, `publish: pnpm release`
+- [ ] `.github/workflows/release.yml` exists: fork guard, master-branch trigger, pinned foundry version identical to ci.yml, `id-token: write`, provenance env, `publish: pnpm release`, all actions SHA-pinned, zero `NODE_AUTH_TOKEN`
 - [ ] `ci.yml` untouched (`git diff -- .github/workflows/ci.yml` → empty)
 - [ ] CLAUDE.md documents the release flow
-- [ ] Report lists the two operator TODOs (NPM_TOKEN secret, npm name check)
+- [ ] Report lists the two operator TODOs (Trusted Publishing setup, npm name check)
 - [ ] `plans/README.md` status row updated
 
 ## STOP conditions
@@ -223,10 +247,11 @@ gates are syntax, toolchain parity with ci.yml, and the fork guard.
 ## Maintenance notes
 
 - First release: merge the Version Packages PR only after the operator
-  TODOs are done; the publish step fails cleanly on a missing token (the
-  version PR itself is unaffected).
-- When npm Trusted Publishing (OIDC) is configured for this repo, drop
-  `NODE_AUTH_TOKEN` and the secret — provenance already uses `id-token`.
+  TODOs are done; the publish step fails cleanly if the OIDC trust
+  relationship isn't configured yet (the version PR itself is unaffected).
+- If the token fallback was ever used, removing `NODE_AUTH_TOKEN` and the
+  secret once Trusted Publishing works is a standing TODO — a long-lived
+  publish credential is the exact liability this design avoids.
 - At 1.0.0, revisit the changesets config: pre-1.0 "minor = breaking"
   loosens into real semver, and the viem peer range policy (plan 028)
   should be re-checked in the same pass.

@@ -5,16 +5,19 @@ on:
     branches: [master]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
       - run: corepack enable
-      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: foundry-rs/foundry-toolchain@c7450ba673e133f5ee30098b3b54f444d3a2ca2d # v1.8.0
         with:
           # Update to stable when a new release > v1.7.1 is out
           # Anvil fork tests depend on https://github.com/foundry-rs/foundry/pull/14569
@@ -24,14 +27,15 @@ jobs:
       - name: committed artifacts are fresh
         run: git diff --exit-code -- src/generated
       - name: types resolve from the packed tarball
-        run: pnpm dlx @arethetypeswrong/cli --pack . --profile esm-only
+        run: pnpm exec attw --pack . --profile esm-only
       - name: packed tarball smoke test
         run: |
           pnpm pack --out /tmp/vts.tgz
           mkdir -p /tmp/vts-smoke && cd /tmp/vts-smoke
           npm init -y > /dev/null
           npm pkg set type=module > /dev/null
-          npm install /tmp/vts.tgz viem typescript @types/node > /dev/null
+          # Keep these pins in sync with package.json devDependency bumps.
+          npm install --ignore-scripts /tmp/vts.tgz viem@2.54.1 typescript@5.9.3 @types/node@20.19.43 > /dev/null
           cat > smoke.ts <<'EOF'
           import { TxSimulator, OVERRIDE_TOKEN_AMOUNT } from "viem-tx-sim";
           import { createPublicClient, http } from "viem";
