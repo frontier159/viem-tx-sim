@@ -85,6 +85,62 @@ describe("viem-tx-sim", () => {
     ]);
   });
 
+  it("uses native balance overrides for unfunded value calls", async () => {
+    const from = getAddress("0x0000000000000000000000000000000000000ABC");
+    const value = parseEther("1");
+    const funded = parseEther("10");
+    const call = { to: ctx.secondAccount.address, data: "0x" as const, value };
+    const query = { asset: "native" as const, account: from };
+
+    const unfunded = await sim.simulate({
+      from,
+      calls: [call],
+      balanceQueries: [query],
+    });
+    const result = await sim.simulate({
+      from,
+      calls: [call],
+      balanceQueries: [query],
+      nativeBalanceOverrides: [{ account: from, amount: funded }],
+    });
+
+    expect(unfunded.status).toBe("reverted");
+    expect(result.status).toBe("success");
+    expect(result.balanceDeltas).toEqual([
+      {
+        asset: "native",
+        account: from,
+        before: funded,
+        after: funded - value,
+        delta: -value,
+        byCall: [-value],
+      },
+    ]);
+  });
+
+  it("uses native balance overrides for arbitrary accounts", async () => {
+    const fundedAccount = getAddress("0x0000000000000000000000000000000000000DEF");
+    const amount = parseEther("3");
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: ctx.secondAccount.address, data: "0x" }],
+      balanceQueries: [{ asset: "native", account: fundedAccount }],
+      nativeBalanceOverrides: [{ account: fundedAccount, amount }],
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.balanceDeltas).toEqual([
+      {
+        asset: "native",
+        account: fundedAccount,
+        before: amount,
+        after: amount,
+        delta: 0n,
+        byCall: [0n],
+      },
+    ]);
+  });
+
   it("emits debug events for simulator RPC calls", async () => {
     const events: SimulationDebugEvent[] = [];
     const result = await sim.simulate({
@@ -744,6 +800,28 @@ describe("viem-tx-sim", () => {
         ],
       }),
     ).rejects.toBeInstanceOf(InvalidSimulationInputError);
+  });
+
+  it("allows max uint256 native balance override amounts", async () => {
+    const maxUint256 = (1n << 256n) - 1n;
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: ctx.secondAccount.address, data: "0x" }],
+      balanceQueries: [{ asset: "native", account: ctx.account.address }],
+      nativeBalanceOverrides: [{ account: ctx.account.address, amount: maxUint256 }],
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.balanceDeltas).toEqual([
+      {
+        asset: "native",
+        account: ctx.account.address,
+        before: maxUint256,
+        after: maxUint256,
+        delta: 0n,
+        byCall: [0n],
+      },
+    ]);
   });
 
   it("decodes custom error reverts with per-call ABI", async () => {

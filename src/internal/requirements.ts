@@ -8,6 +8,7 @@ import type {
   EstimateAssetRequirementsArgs,
   SimulatedCall,
 } from "../types.js";
+import { OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
 import { prepareAllowanceOverrides, prepareBalanceOverrides } from "./slots.js";
 import { addressKey, uniqueAddresses } from "./data.js";
 import type { ClientArgs } from "./rpc.js";
@@ -37,14 +38,20 @@ export async function estimateAssetRequirements(
     data: call.data,
     value: call.value ?? 0n,
   })) satisfies SimulatedCall[];
-  const candidateAddresses = await discoverCandidateAddresses({
-    client: args.client,
-    from: args.from,
-    calls,
-    gas: args.gas,
-    debug: args.debug,
-    ...blockOptionsSpread(args),
-  });
+  let candidateAddresses: Address[];
+  try {
+    candidateAddresses = await discoverCandidateAddresses({
+      client: args.client,
+      from: args.from,
+      calls,
+      gas: args.gas,
+      debug: args.debug,
+      ...blockOptionsSpread(args),
+    });
+  } catch (cause) {
+    if (!isInsufficientFunds(cause)) throw cause;
+    candidateAddresses = uniqueAddresses(calls.map((call) => call.to));
+  }
   const recon = await runSimulator({
     client: args.client,
     from: args.from,
@@ -90,6 +97,7 @@ export async function estimateAssetRequirements(
     calls,
     candidates: candidateAddresses,
     tokenSlotOverrides,
+    extraStateOverrides: [{ address: args.from, balance: OVERRIDE_TOKEN_AMOUNT }],
     allowanceProbes,
     gas: args.gas,
     debug: args.debug,
@@ -139,6 +147,10 @@ export async function estimateAssetRequirements(
 }
 
 export const estimateTokenOverrideRequirements = estimateAssetRequirements;
+
+function isInsufficientFunds(cause: unknown): boolean {
+  return cause instanceof Error && cause.message.includes("Insufficient funds");
+}
 
 function allowancePairs(
   tokens: readonly Address[],

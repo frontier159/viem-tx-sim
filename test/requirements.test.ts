@@ -317,6 +317,20 @@ describe("tokenOverrides.estimateRequirements", () => {
     expect(requirements.native).toBe(value);
   });
 
+  it("measures native value requirements for unfunded accounts", async () => {
+    const from = getAddress("0x0000000000000000000000000000000000000BEE");
+    const value = parseEther("1");
+
+    // Fails pre-036: the measurement run had no native forge, so broke wallets collapsed.
+    const requirements = await sim.tokenOverrides.estimateRequirements({
+      from,
+      calls: [{ to: ctx.secondAccount.address, data: "0x", value }],
+    });
+
+    expect(requirements.status).toBe("success");
+    expect(requirements.native).toBe(value);
+  });
+
   async function deploy(contractFile: string, contractName: string, args: readonly unknown[] = []) {
     const contract = artifact(contractFile, contractName);
     const hash = await ctx.walletClient.deployContract({

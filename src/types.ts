@@ -17,6 +17,14 @@ export type BalanceQuery = {
   account: Address;
 };
 
+/** Protocol-level native balance to set before simulating; no slot discovery needed. */
+export type NativeBalanceOverride = {
+  /** Account to fund: `from` or any other address such as a plugin or router. */
+  account: Address;
+  /** Balance in wei to set. */
+  amount: bigint;
+};
+
 /**
  * Balance observation for one query. `before` is after `tokenSlotOverrides` are applied, so deltas
  * describe simulated changes under the supplied state assumptions.
@@ -131,6 +139,11 @@ export type SimulateArgs = SimulationOptions & {
    * observe them.
    */
   tokenSlotOverrides?: readonly TokenSlotOverride[];
+  /**
+   * Native balance overrides applied before simulating. Duplicate accounts use the last amount.
+   * Query forged accounts if you want to observe them.
+   */
+  nativeBalanceOverrides?: readonly NativeBalanceOverride[];
   /** Additional error definitions for decoding this call's reverts; merged after the bound errorAbi. */
   errorAbi?: Abi;
 };
