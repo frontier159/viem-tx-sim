@@ -1,10 +1,12 @@
+import type { Address } from "viem";
+
 import { DEFAULT_SIMULATION_GAS_LIMIT } from "./constants.js";
 import { InvalidSimulationInputError } from "./errors.js";
-import { forUserBalanceQueries } from "./internal/queryDiscovery.js";
-import { estimateAssetRequirements } from "./internal/requirements.js";
+import { discoverErc20s, forUserBalanceQueries } from "./internal/queryDiscovery.js";
+import { estimateTokenOverrideRequirements } from "./internal/requirements.js";
 import { blockOptionsSpread, type ClientArgs } from "./internal/rpc.js";
 import { runSimulator } from "./internal/simulator.js";
-import { prepareAllowanceOverrides, prepareBalanceOverrides } from "./internal/slots.js";
+import { prepareAllowanceTokenOverrides, prepareBalanceTokenOverrides } from "./internal/slots.js";
 import type {
   BalanceDelta,
   BalanceQuery,
@@ -69,47 +71,58 @@ export interface TxSimulator {
      * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
      */
     forUser: (args: ForUserBalanceQueriesArgs) => Promise<BalanceQuery[]>;
+
+    /**
+     * Discovers ERC-20 contracts touched by the calls that answer `balanceOf(from)`.
+     *
+     * This is the discovery half of `forUser`; map the returned addresses yourself when observing a
+     * different account.
+     *
+     * @throws AccessListUnsupportedError when the RPC endpoint cannot provide access lists.
+     * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
+     */
+    discoverErc20s: (args: ForUserBalanceQueriesArgs) => Promise<Address[]>;
   };
 
-  /**
-   * Prepares ERC-20 balance overrides for `from`.
-   *
-   * Each token is probed with RPC-only access lists and sentinel state overrides. Tokens the
-   * simulator cannot `deal` by verified storage write are returned in `unresolved` rather than
-   * thrown.
-   *
-   * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
-   */
-  prepareBalanceOverrides: (args: PrepareBalanceOverridesArgs) => Promise<PreparedBalanceOverrides>;
+  readonly tokenOverrides: {
+    /**
+     * Prepares ERC-20 balance overrides for `from`.
+     *
+     * Each token is probed with RPC-only access lists and sentinel state overrides. Tokens the
+     * simulator cannot `deal` by verified storage write are returned in `unresolved` rather than
+     * thrown.
+     *
+     * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
+     */
+    forBalances: (args: PrepareBalanceOverridesArgs) => Promise<PreparedBalanceOverrides>;
 
-  /**
-   * Prepares ERC-20 allowance overrides for `from` and the requested token/spender pairs.
-   *
-   * Standard Solidity allowance layouts are inferred after one verified probe per token where
-   * possible; non-standard layouts fall back to per-pair probing. Pairs the simulator cannot `deal`
-   * via verified storage write are returned in `unresolved` rather than thrown.
-   *
-   * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
-   */
-  prepareAllowanceOverrides: (
-    args: PrepareAllowanceOverridesArgs,
-  ) => Promise<PreparedAllowanceOverrides>;
+    /**
+     * Prepares ERC-20 allowance overrides for `from` and the requested token/spender pairs.
+     *
+     * Standard Solidity allowance layouts are inferred after one verified probe per token where
+     * possible; non-standard layouts fall back to per-pair probing. Pairs the simulator cannot
+     * `deal` via verified storage write are returned in `unresolved` rather than thrown.
+     *
+     * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
+     */
+    forAllowances: (args: PrepareAllowanceOverridesArgs) => Promise<PreparedAllowanceOverrides>;
 
-  /**
-   * Estimates the balances and approvals needed to execute the observed path.
-   *
-   * Use this when the tokens or spenders are not known ahead of time. Returned amounts are estimated
-   * under forged balances/allowances and should be padded before display or transaction assembly;
-   * unreliable measurements are reported under `unresolved`.
-   *
-   * @throws InvalidSimulationInputError when `calls` is empty.
-   * @throws AccessListUnsupportedError when the RPC endpoint cannot provide access lists.
-   * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides or
-   * returns undecodable simulator output.
-   */
-  estimateAssetRequirements: (
-    args: EstimateAssetRequirementsArgs,
-  ) => Promise<EstimatedAssetRequirements>;
+    /**
+     * Estimates the balances and approvals needed to execute the observed path.
+     *
+     * Use this when the tokens or spenders are not known ahead of time. Returned amounts are
+     * estimated under forged balances/allowances and should be padded before display or transaction
+     * assembly; unreliable measurements are reported under `unresolved`.
+     *
+     * @throws InvalidSimulationInputError when `calls` is empty.
+     * @throws AccessListUnsupportedError when the RPC endpoint cannot provide access lists.
+     * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides or
+     * returns undecodable simulator output.
+     */
+    estimateRequirements: (
+      args: EstimateAssetRequirementsArgs,
+    ) => Promise<EstimatedAssetRequirements>;
+  };
 }
 
 /** Factory for {@link TxSimulator} instances bound to one viem public client. */
@@ -150,13 +163,21 @@ export const TxSimulator = {
       balanceQueries: {
         forUser: (args) =>
           forUserBalanceQueries({ ...args, ...defaults(args), client: bound.client }),
+        discoverErc20s: (args) =>
+          discoverErc20s({ ...args, ...defaults(args), client: bound.client }),
       },
-      prepareBalanceOverrides: (args) =>
-        prepareBalanceOverrides({ ...args, ...defaults(args), client: bound.client }),
-      prepareAllowanceOverrides: (args) =>
-        prepareAllowanceOverrides({ ...args, ...defaults(args), client: bound.client }),
-      estimateAssetRequirements: (args) =>
-        estimateAssetRequirements({ ...args, ...revertDefaults(args), client: bound.client }),
+      tokenOverrides: {
+        forBalances: (args) =>
+          prepareBalanceTokenOverrides({ ...args, ...defaults(args), client: bound.client }),
+        forAllowances: (args) =>
+          prepareAllowanceTokenOverrides({ ...args, ...defaults(args), client: bound.client }),
+        estimateRequirements: (args) =>
+          estimateTokenOverrideRequirements({
+            ...args,
+            ...revertDefaults(args),
+            client: bound.client,
+          }),
+      },
     };
   },
 };

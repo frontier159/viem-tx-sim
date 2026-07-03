@@ -90,17 +90,19 @@ describe("TxSimulator", () => {
 
 const fake: TxSimulator = {
   simulate: async () => ({ status: "success", balanceDeltas: [], unresolved: [] }),
-  balanceQueries: { forUser: async () => [] },
-  prepareBalanceOverrides: async () => ({ slots: [], unresolved: [] }),
-  prepareAllowanceOverrides: async () => ({ slots: [], unresolved: [] }),
-  estimateAssetRequirements: async () => ({
-    status: "success",
-    native: 0n,
-    balances: [],
-    allowances: [],
-    slots: [],
-    unresolved: { balanceSlots: [], allowanceSlots: [], allowances: [] },
-  }),
+  balanceQueries: { forUser: async () => [], discoverErc20s: async () => [] },
+  tokenOverrides: {
+    forBalances: async () => ({ slots: [], unresolved: [] }),
+    forAllowances: async () => ({ slots: [], unresolved: [] }),
+    estimateRequirements: async () => ({
+      status: "success",
+      native: 0n,
+      balances: [],
+      allowances: [],
+      slots: [],
+      unresolved: { balanceSlots: [], allowanceSlots: [], allowances: [] },
+    }),
+  },
 };
 
 void fake;

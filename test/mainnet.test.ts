@@ -65,7 +65,7 @@ mainnetDescribe("mainnet RPC integration", () => {
     });
 
     const blockNumber = mainnetBlockNumber();
-    const balanceOverrides = await sim.prepareBalanceOverrides({
+    const balanceOverrides = await sim.tokenOverrides.forBalances({
       from: ANVIL_ACCOUNT,
       tokens: [USDC],
       blockNumber,
@@ -109,12 +109,12 @@ mainnetDescribe("mainnet RPC integration", () => {
     const sim = TxSimulator.create({ client });
     const blockNumber = mainnetBlockNumber();
     const [balanceOverrides, allowanceOverrides] = await Promise.all([
-      sim.prepareBalanceOverrides({
+      sim.tokenOverrides.forBalances({
         from: ANVIL_ACCOUNT,
         tokens: [USDS],
         blockNumber,
       }),
-      sim.prepareAllowanceOverrides({
+      sim.tokenOverrides.forAllowances({
         from: ANVIL_ACCOUNT,
         pairs: [{ token: USDS, spender: SUSDS }],
         blockNumber,
@@ -133,7 +133,7 @@ mainnetDescribe("mainnet RPC integration", () => {
       transport: http(MAINNET_RPC_URL),
     });
     const sim = TxSimulator.create({ client });
-    const requirements = await sim.estimateAssetRequirements({
+    const requirements = await sim.tokenOverrides.estimateRequirements({
       from: ANVIL_ACCOUNT,
       calls: [{ to: SUSDS, data: usdsDepositCalldata() }],
       blockNumber: mainnetBlockNumber(),

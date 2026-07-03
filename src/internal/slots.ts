@@ -24,7 +24,7 @@ type AllowanceSlotFact = SlotFact & {
 };
 
 // Orchestration
-/** @internal Implements `TxSimulator.prepareBalanceOverrides`. Prefer the instance API from the package root. */
+/** @internal Implements `TxSimulator.tokenOverrides.forBalances`. Prefer the instance API from the package root. */
 export async function prepareBalanceOverrides(
   args: PrepareBalanceOverridesArgs & ClientArgs,
 ): Promise<PreparedBalanceOverrides> {
@@ -47,7 +47,7 @@ export async function prepareBalanceOverrides(
   };
 }
 
-/** @internal Implements `TxSimulator.prepareAllowanceOverrides`. Prefer the instance API from the package root. */
+/** @internal Implements `TxSimulator.tokenOverrides.forAllowances`. Prefer the instance API from the package root. */
 export async function prepareAllowanceOverrides(
   args: PrepareAllowanceOverridesArgs & ClientArgs,
 ): Promise<PreparedAllowanceOverrides> {
@@ -193,6 +193,9 @@ function mappingSlot(key: Address, baseSlot: Hex | bigint): Hex {
     ),
   );
 }
+
+export const prepareBalanceTokenOverrides = prepareBalanceOverrides;
+export const prepareAllowanceTokenOverrides = prepareAllowanceOverrides;
 
 function allowanceSlotFor(owner: Address, spender: Address, base: bigint): Hex {
   return mappingSlot(spender, mappingSlot(owner, base));

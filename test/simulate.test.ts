@@ -237,7 +237,7 @@ describe("viem-tx-sim", () => {
     const spender = await deploy("Spender.sol", "Spender");
     await write(token, "mint", [ctx.account.address, 1_000n]);
 
-    const allowanceOverrides = await sim.prepareAllowanceOverrides({
+    const allowanceOverrides = await sim.tokenOverrides.forAllowances({
       from: ctx.account.address,
       pairs: [{ token: token.address, spender: spender.address }],
     });
@@ -284,7 +284,7 @@ describe("viem-tx-sim", () => {
     const spenderA = await deploy("Spender.sol", "Spender");
     const spenderB = await deploy("Spender.sol", "Spender");
 
-    const allowanceOverrides = await sim.prepareAllowanceOverrides({
+    const allowanceOverrides = await sim.tokenOverrides.forAllowances({
       from: ctx.account.address,
       pairs: [
         { token: token.address, spender: spenderA.address },
@@ -365,10 +365,35 @@ describe("viem-tx-sim", () => {
     ).toHaveLength(1);
   });
 
+  it("discovers ERC-20s for wallet balance queries", async () => {
+    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy("StoredTokenSpender.sol", "StoredTokenSpender", [token.address]);
+    await write(token, "mint", [ctx.account.address, 1_000n]);
+    await write(token, "approve", [spender.address, 123n]);
+
+    const data = encodeFunctionData({
+      abi: spender.abi,
+      functionName: "pull",
+      args: [123n],
+    });
+    const args = {
+      from: ctx.account.address,
+      calls: [{ to: spender.address, data }],
+    };
+    const erc20s = await sim.balanceQueries.discoverErc20s(args);
+    const balanceQueries = await sim.balanceQueries.forUser(args);
+
+    expect(erc20s).toEqual([token.address]);
+    expect(balanceQueries).toEqual([
+      { asset: "native", account: ctx.account.address },
+      ...erc20s.map((asset) => ({ asset, account: ctx.account.address })),
+    ]);
+  });
+
   it("uses caller-supplied balance storage overrides for view-only token balances", async () => {
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const spender = await deploy("Spender.sol", "Spender");
-    const balanceOverrides = await sim.prepareBalanceOverrides({
+    const balanceOverrides = await sim.tokenOverrides.forBalances({
       from: ctx.account.address,
       tokens: [token.address],
     });
@@ -410,7 +435,7 @@ describe("viem-tx-sim", () => {
 
   it("reports unresolved balance slots", async () => {
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const discovery = await sim.prepareBalanceOverrides({
+    const discovery = await sim.tokenOverrides.forBalances({
       from: ctx.account.address,
       tokens: [token.address, ctx.secondAccount.address],
     });
@@ -515,7 +540,7 @@ describe("viem-tx-sim", () => {
     };
     const spender = await deploy("Spender.sol", "Spender");
 
-    const balanceOverrides = await sim.prepareBalanceOverrides({
+    const balanceOverrides = await sim.tokenOverrides.forBalances({
       from: ctx.account.address,
       tokens: [proxyToken.address],
     });
@@ -557,11 +582,11 @@ describe("viem-tx-sim", () => {
   it("combines balance and allowance overrides", async () => {
     const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const spender = await deploy("Spender.sol", "Spender");
-    const balanceOverrides = await sim.prepareBalanceOverrides({
+    const balanceOverrides = await sim.tokenOverrides.forBalances({
       from: ctx.account.address,
       tokens: [token.address],
     });
-    const allowanceOverrides = await sim.prepareAllowanceOverrides({
+    const allowanceOverrides = await sim.tokenOverrides.forAllowances({
       from: ctx.account.address,
       pairs: [{ token: token.address, spender: spender.address }],
     });

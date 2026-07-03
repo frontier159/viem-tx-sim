@@ -80,17 +80,18 @@ console.log(result.balanceDeltas);
 If your dapp already knows what it needs to inspect, skip wallet discovery and pass explicit queries. This can observe any account, not just `from`:
 
 ```ts
+const balanceQueries = tokens.map((asset) => ({ asset, account: pluginAddress }));
 const result = await sim.simulate({
   from: user,
   calls: partialBundle,
-  balanceQueries: [{ asset: flashToken, account: pluginAddress }],
+  balanceQueries,
 });
 const leftover = result.balanceDeltas.find(
   (delta) => delta.asset === flashToken && delta.account === pluginAddress,
 )?.after;
 ```
 
-For approvals, either include an `approve` / `permit` call in `calls` so later calls see it, or prepare allowance overrides when you need to simulate already-approved state without sending an approval call.
+For approvals, either include an `approve` / `permit` call in `calls` so later calls see it, or use `sim.tokenOverrides.forAllowances()` when you need to simulate already-approved state without sending an approval call.
 
 ## Preparing balance and allowance overrides
 
@@ -100,11 +101,11 @@ Override preparation is explicit and cacheable. Preparation returns ready-to-use
 import { TxSimulator } from "viem-tx-sim";
 
 const sim = TxSimulator.create({ client });
-const balanceOverrides = await sim.prepareBalanceOverrides({
+const balanceOverrides = await sim.tokenOverrides.forBalances({
   from,
   tokens: [token],
 });
-const allowanceOverrides = await sim.prepareAllowanceOverrides({
+const allowanceOverrides = await sim.tokenOverrides.forAllowances({
   from,
   pairs: [{ token, spender }],
 });
@@ -121,13 +122,13 @@ Prepared balance overrides are reusable per token/owner, and prepared allowance 
 
 ## Estimating asset requirements (optional)
 
-When you don't already know which balances and approvals a transaction needs, `sim.estimateAssetRequirements()` measures them by forging generous state and observing per-call balance and allowance changes. Returned amounts are estimates measured under forged state and should be padded; pairs whose allowance is set inside the batch (approve or permit) are excluded, and measured allowance decreases are sanity-bounded by the token's gross outflow. Measurements discarded by that bound are reported under `unresolved.allowances`.
+When you don't already know which balances and approvals a transaction needs, `sim.tokenOverrides.estimateRequirements()` measures them by forging generous state and observing per-call balance and allowance changes. Returned amounts are estimates measured under forged state and should be padded; pairs whose allowance is set inside the batch (approve or permit) are excluded, and measured allowance decreases are sanity-bounded by the token's gross outflow. Measurements discarded by that bound are reported under `unresolved.allowances`.
 
 ```ts
 import { TxSimulator } from "viem-tx-sim";
 
 const sim = TxSimulator.create({ client });
-const requirements = await sim.estimateAssetRequirements({ from, calls });
+const requirements = await sim.tokenOverrides.estimateRequirements({ from, calls });
 // requirements.allowances -> [{ token, spender, amount }]
 // requirements.balances   -> [{ token, amount }]
 // requirements.slots      -> feed to sim.simulate({ ..., tokenSlotOverrides })
@@ -194,13 +195,13 @@ Situations the simulation does not cover, or where the preview can differ from r
 
 **An adversarial contract can detect it is being simulated** — via the code at `from`, the recognizable forged balances, or `eth_call` context — and behave differently in the real transaction. This is inherent to state-override simulation (centralized simulation APIs share it). Treat the preview as best-effort insight, not a security guarantee against malicious contracts.
 
-**Results are estimates against one block's state.** Deltas and estimated asset requirements reflect the chosen block; prices, liquidity, and allowances move before the real transaction lands. Pad amounts accordingly. Amounts from `sim.estimateAssetRequirements()` are additionally measured under forged (very large) balances, so contracts that branch on the account's real balance can be measured on the wrong branch.
+**Results are estimates against one block's state.** Deltas and estimated asset requirements reflect the chosen block; prices, liquidity, and allowances move before the real transaction lands. Pad amounts accordingly. Amounts from `sim.tokenOverrides.estimateRequirements()` are additionally measured under forged (very large) balances, so contracts that branch on the account's real balance can be measured on the wrong branch.
 
 **Asset coverage is native + `balanceOf(address)`.** Deltas track ETH and anything answering ERC-20-style `balanceOf` (an ERC-721 shows up as a count delta, without token IDs). ERC-1155 balances (`balanceOf(address,uint256)`) are not tracked. Tokens whose balance is computed rather than stored in one slot per holder (rebasing/share-based tokens like stETH) cannot be forged — override preparation verifies slots before writing and reports them in the `unresolved` list.
 
 **Wallet discovery follows the dry run.** `sim.balanceQueries.forUser()` token candidates come from `eth_createAccessList` on the *unforged* calls; if that dry run reverts early, contracts that would only be touched later are not discovered. Explicit `balanceQueries` avoid this when your app already knows the assets or accounts to observe.
 
-**RPC provider requirements.** `sim.simulate()` requires `eth_call` with state overrides. `sim.balanceQueries.forUser()`, override preparation, and asset-requirement estimation also require `eth_createAccessList` (including returning the access list for reverting calls). Missing support surfaces as `AccessListUnsupportedError` / `StateOverrideUnsupportedError`.
+**RPC provider requirements.** `sim.simulate()` requires `eth_call` with state overrides. `sim.balanceQueries.forUser()`, `sim.balanceQueries.discoverErc20s()`, `sim.tokenOverrides.*`, and asset-requirement estimation also require `eth_createAccessList` (including returning the access list for reverting calls). Missing support surfaces as `AccessListUnsupportedError` / `StateOverrideUnsupportedError`.
 
 **Not a gas estimator.** The simulation runs under `DEFAULT_SIMULATION_GAS_LIMIT` by default and the injected code changes gas accounting; use `eth_estimateGas` on the real transaction for gas.
 

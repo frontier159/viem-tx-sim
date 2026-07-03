@@ -24,7 +24,7 @@ type AllowanceProbe = {
   spender: Address;
 };
 
-/** @internal Implements {@link TxSimulator.estimateAssetRequirements}. Prefer the instance API from the package root. */
+/** @internal Implements {@link TxSimulator.tokenOverrides.estimateRequirements}. Prefer the instance API from the package root. */
 export async function estimateAssetRequirements(
   args: EstimateAssetRequirementsArgs & ClientArgs,
 ): Promise<EstimatedAssetRequirements> {
@@ -137,6 +137,8 @@ export async function estimateAssetRequirements(
 
   return { status: "success", ...shared };
 }
+
+export const estimateTokenOverrideRequirements = estimateAssetRequirements;
 
 function allowancePairs(
   tokens: readonly Address[],

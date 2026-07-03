@@ -70,7 +70,7 @@ type SimulationOptions = {
 export type TokenSlotOverride = {
   /** Token contract whose storage should be overridden. */
   token: Address;
-  /** Storage slot to write. Usually prepared by `prepareBalanceOverrides` or `prepareAllowanceOverrides`. */
+  /** Storage slot to write. Usually prepared by `tokenOverrides.forBalances` or `tokenOverrides.forAllowances`. */
   slot: Hex;
   /** Value written to the slot. Must be below uint256 max. */
   amount: bigint;
@@ -138,7 +138,7 @@ export type ForUserBalanceQueriesArgs = SimulationOptions & {
   calls: readonly SimulatedCall[];
 };
 
-/** Arguments for `TxSimulator.prepareBalanceOverrides`. */
+/** Arguments for `TxSimulator.tokenOverrides.forBalances`. */
 export type PrepareBalanceOverridesArgs = SimulationOptions & {
   /** Account whose token balance overrides should be prepared. */
   from: Address;
@@ -146,7 +146,7 @@ export type PrepareBalanceOverridesArgs = SimulationOptions & {
   tokens: readonly Address[];
 };
 
-/** Arguments for `TxSimulator.prepareAllowanceOverrides`. */
+/** Arguments for `TxSimulator.tokenOverrides.forAllowances`. */
 export type PrepareAllowanceOverridesArgs = SimulationOptions & {
   /** Account whose allowance overrides should be prepared. */
   from: Address;
@@ -154,7 +154,7 @@ export type PrepareAllowanceOverridesArgs = SimulationOptions & {
   pairs: readonly AllowanceSlotPair[];
 };
 
-/** Arguments for `TxSimulator.estimateAssetRequirements`. */
+/** Arguments for `TxSimulator.tokenOverrides.estimateRequirements`. */
 export type EstimateAssetRequirementsArgs = SimulationOptions & {
   /** Account whose balance and approval needs should be estimated. */
   from: Address;

@@ -36,7 +36,7 @@ describe("error handling", () => {
     ).rejects.toBeInstanceOf(InvalidSimulationInputError);
 
     await expect(
-      sim.estimateAssetRequirements({ from: ctx.account.address, calls: [] }),
+      sim.tokenOverrides.estimateRequirements({ from: ctx.account.address, calls: [] }),
     ).rejects.toBeInstanceOf(InvalidSimulationInputError);
   });
 
@@ -85,7 +85,7 @@ describe("error handling", () => {
     });
 
     await expect(
-      sim.prepareBalanceOverrides({
+      sim.tokenOverrides.forBalances({
         from: ctx.account.address,
         tokens: [token.address],
       }),
