@@ -1,5 +1,11 @@
 # viem-tx-sim
 
+## 0.2.1
+
+### Patch Changes
+
+- [#7](https://github.com/frontier159/viem-tx-sim/pull/7) [`34728ee`](https://github.com/frontier159/viem-tx-sim/commit/34728eeae6a0d62476a9f95d7d783270e8b0d213) Thanks [@frontier159](https://github.com/frontier159)! - Add `nativeBalanceOverrides` to `simulate()` and let `estimateRequirements()` measure native requirements for unfunded accounts.
+
 ## 0.2.0
 
 ### Minor Changes
