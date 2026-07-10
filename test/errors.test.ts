@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getAddress, type Abi, type Address, type CallParameters } from "viem";
+import { describe, expect, it } from "vitest";
+import { encodeErrorResult, getAddress, parseAbi, type Hex } from "viem";
 
 import {
   AccessListUnsupportedError,
@@ -7,151 +7,143 @@ import {
   StateOverrideUnsupportedError,
   TxSimulator,
 } from "../src/index.js";
-import { artifact } from "./helpers/artifacts.js";
-import { type AnvilTestContext, startAnvil } from "./helpers/anvil.js";
+import { encodeSimulationResult, fakeClient } from "./helpers/fakeClient.js";
 
-type RpcRequest = {
-  method: string;
-  params?: unknown;
-};
-type RpcDelegate = (request: RpcRequest, options?: unknown) => Promise<unknown>;
-type CallDelegate = (parameters: CallParameters) => Promise<unknown>;
+const from = getAddress("0x0000000000000000000000000000000000000abc");
+const to = getAddress("0x0000000000000000000000000000000000000def");
+const token = getAddress("0x00000000000000000000000000000000000000f0");
+
+function simulatorFor(responders: Record<string, (params: unknown) => unknown>): TxSimulator {
+  return TxSimulator.create({ client: fakeClient(responders) });
+}
 
 describe("error handling", () => {
-  let ctx: AnvilTestContext;
-  let sim: TxSimulator;
-
-  beforeEach(async () => {
-    ctx = await startAnvil();
-    sim = TxSimulator.create({ client: ctx.publicClient });
-  });
-
-  afterEach(() => {
-    ctx?.stop();
-  });
-
   it("rejects empty call batches with a typed input error", async () => {
-    await expect(
-      sim.simulate({ from: ctx.account.address, calls: [], balanceQueries: [] }),
-    ).rejects.toBeInstanceOf(InvalidSimulationInputError);
+    const sim = simulatorFor({});
 
+    await expect(sim.simulate({ from, calls: [], balanceQueries: [] })).rejects.toBeInstanceOf(
+      InvalidSimulationInputError,
+    );
     await expect(
-      sim.tokenOverrides.estimateRequirements({ from: ctx.account.address, calls: [] }),
+      sim.tokenOverrides.estimateRequirements({ from, calls: [] }),
     ).rejects.toBeInstanceOf(InvalidSimulationInputError);
   });
 
   it("rejects unsupported access-list RPCs with a typed error", async () => {
-    patchRpc(ctx, "eth_createAccessList", async () => {
-      throw new Error("the method eth_createAccessList does not exist/is not available");
+    const sim = simulatorFor({
+      eth_createAccessList: () => {
+        throw new Error("the method eth_createAccessList does not exist/is not available");
+      },
     });
 
-    await expect(discoverTrivialQueries()).rejects.toBeInstanceOf(AccessListUnsupportedError);
+    await expect(
+      sim.balanceQueries.forUser({ from, calls: [{ to, data: "0x" }] }),
+    ).rejects.toBeInstanceOf(AccessListUnsupportedError);
   });
 
   it("treats access-list execution reverts as empty candidate discovery", async () => {
-    patchRpc(ctx, "eth_createAccessList", async () => {
-      throw new Error("execution reverted");
+    const sim = simulatorFor({
+      eth_createAccessList: () => {
+        throw new Error("execution reverted");
+      },
+      eth_call: () => encodeSimulationResult(),
     });
 
-    await expect(discoverTrivialQueries()).resolves.toEqual([
-      { asset: "native", account: ctx.account.address },
-    ]);
+    await expect(
+      sim.balanceQueries.forUser({ from, calls: [{ to, data: "0x" }] }),
+    ).resolves.toEqual([{ asset: "native", account: from }]);
   });
 
   it("rejects unsupported state overrides with a typed error", async () => {
-    patchCall(ctx, async (parameters, next) => {
-      if (parameters.stateOverride !== undefined) throw new Error("state override not supported");
-      return next();
+    const sim = simulatorFor({
+      eth_call: () => {
+        throw new Error("state override not supported");
+      },
     });
 
-    await expect(simulateTrivialCall()).rejects.toBeInstanceOf(StateOverrideUnsupportedError);
+    await expect(
+      sim.simulate({ from, calls: [{ to, data: "0x" }], balanceQueries: [] }),
+    ).rejects.toBeInstanceOf(StateOverrideUnsupportedError);
   });
 
   it("rejects undecodable simulator output with a typed error", async () => {
-    patchCall(ctx, async (parameters, next) => {
-      if (parameters.stateOverride !== undefined) return "0x";
-      return next();
-    });
+    const sim = simulatorFor({ eth_call: () => "0x" });
 
-    const promise = simulateTrivialCall();
+    const promise = sim.simulate({ from, calls: [{ to, data: "0x" }], balanceQueries: [] });
     await expect(promise).rejects.toBeInstanceOf(StateOverrideUnsupportedError);
     await expect(promise).rejects.toThrow(/undecodable/);
   });
 
   it("omits balance slots when probing fails", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    patchRpc(ctx, "eth_createAccessList", async () => {
-      throw new Error("eth_createAccessList unavailable");
+    const sim = simulatorFor({
+      eth_createAccessList: () => {
+        throw new Error("eth_createAccessList unavailable");
+      },
+    });
+
+    await expect(sim.tokenOverrides.forBalances({ from, tokens: [token] })).resolves.toEqual({
+      slots: [],
+      unresolved: [token],
+    });
+  });
+
+  // Branches Anvil cannot produce, driven through the public interface.
+
+  it("treats a result-shaped execution revert as empty candidate discovery", async () => {
+    const sim = simulatorFor({
+      eth_createAccessList: () => ({ error: { message: "execution reverted" } }),
+      eth_call: () => encodeSimulationResult(),
     });
 
     await expect(
-      sim.tokenOverrides.forBalances({
-        from: ctx.account.address,
-        tokens: [token.address],
-      }),
-    ).resolves.toEqual({ slots: [], unresolved: [token.address] });
+      sim.balanceQueries.forUser({ from, calls: [{ to, data: "0x" }] }),
+    ).resolves.toEqual([{ asset: "native", account: from }]);
   });
 
-  function simulateTrivialCall() {
-    return sim.simulate({
-      from: ctx.account.address,
-      calls: [{ to: ctx.secondAccount.address, data: "0x" }],
-      balanceQueries: [],
+  it("drops a non-Error object cause when formatting an access-list failure", async () => {
+    const sim = simulatorFor({
+      eth_createAccessList: () => ({ error: { message: "boom" } }),
     });
-  }
 
-  function discoverTrivialQueries() {
-    return sim.balanceQueries.forUser({
-      from: ctx.account.address,
-      calls: [{ to: ctx.secondAccount.address, data: "0x" }],
-    });
-  }
+    const error = await sim.balanceQueries
+      .forUser({ from, calls: [{ to, data: "0x" }] })
+      .catch((cause: unknown) => cause);
 
-  async function deploy(contractFile: string, contractName: string, args: readonly unknown[] = []) {
-    const contract = artifact(contractFile, contractName);
-    const hash = await ctx.walletClient.deployContract({
-      abi: contract.abi,
-      bytecode: contract.bytecode,
-      args,
+    expect(error).toBeInstanceOf(AccessListUnsupportedError);
+    expect((error as Error).message).toContain("returned no access list");
+    expect((error as Error).message).not.toContain("boom");
+  });
+
+  it("treats short probe returndata as an unresolved balance slot", async () => {
+    const slot = "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex;
+    const sim = simulatorFor({
+      eth_createAccessList: () => ({
+        accessList: [{ address: token, storageKeys: [slot] }],
+        gasUsed: "0x0",
+      }),
+      eth_call: () => "0x1234", // shorter than 66 chars -> readUint256Call yields undefined
     });
-    const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash });
-    return {
-      abi: contract.abi,
-      address: getAddress(receipt.contractAddress!),
-    } satisfies { abi: Abi; address: Address };
-  }
+
+    await expect(sim.tokenOverrides.forBalances({ from, tokens: [token] })).resolves.toEqual({
+      slots: [],
+      unresolved: [token],
+    });
+  });
+
+  it("formats a Panic(uint256) revert from the simulator", async () => {
+    const panic = encodeErrorResult({
+      abi: parseAbi(["error Panic(uint256)"]),
+      errorName: "Panic",
+      args: [0x11n], // arithmetic overflow
+    });
+    const sim = simulatorFor({
+      eth_call: () =>
+        encodeSimulationResult({ success: false, failingCallIndex: 0n, revertData: panic }),
+    });
+
+    const result = await sim.simulate({ from, calls: [{ to, data: "0x" }], balanceQueries: [] });
+    if (result.status !== "reverted") throw new Error("expected reverted simulation");
+    expect(result.revertReason).toBe("Panic(17)");
+    expect(result.revertError).toEqual({ name: "Panic", args: [17n] });
+  });
 });
-
-function patchRpc(
-  ctx: AnvilTestContext,
-  method: string,
-  handler: (request: RpcRequest, next: () => Promise<unknown>) => Promise<unknown>,
-) {
-  const original = ctx.publicClient.request.bind(ctx.publicClient) as unknown as RpcDelegate;
-  const replacement: RpcDelegate = async (request, options) => {
-    if (isRpcRequest(request) && request.method === method) {
-      return handler(request, () => original(request, options));
-    }
-    return original(request, options);
-  };
-  Object.assign(ctx.publicClient, { request: replacement });
-}
-
-function patchCall(
-  ctx: AnvilTestContext,
-  handler: (parameters: CallParameters, next: () => Promise<unknown>) => Promise<unknown>,
-) {
-  const original = ctx.publicClient.call.bind(ctx.publicClient) as unknown as CallDelegate;
-  const replacement: CallDelegate = async (parameters) =>
-    handler(parameters, () => original(parameters));
-  Object.assign(ctx.publicClient, { call: replacement });
-}
-
-function isRpcRequest(value: unknown): value is RpcRequest {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "method" in value &&
-    typeof value.method === "string"
-  );
-}
