@@ -9,6 +9,7 @@ import type {
   SimulatedCall,
 } from "../types.js";
 import { OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
+import { probeRow } from "./checkpoints.js";
 import { prepareAllowanceOverrides, prepareBalanceOverrides } from "./slots.js";
 import { addressKey, uniqueAddresses } from "./data.js";
 import type { ClientArgs } from "./rpc.js";
@@ -193,18 +194,18 @@ function requiredAllowances(
 } {
   const allowances: EstimatedAssetRequirements["allowances"] = [];
   const discarded: AllowanceSlotPair[] = [];
-  const stride = calls.length + 1;
 
   for (let probeIndex = 0; probeIndex < probes.length; ++probeIndex) {
     const probe = probes[probeIndex];
     if (probe === undefined) continue;
 
+    const row = probeRow(checkpoints, probeIndex, calls.length);
     const firstAllowanceSetIndex = firstInBatchAllowanceSetIndex(calls, owner, probe);
     const limit = firstAllowanceSetIndex ?? calls.length;
     let amount = 0n;
     for (let callIndex = 0; callIndex < limit; ++callIndex) {
-      const before = checkpoints[probeIndex * stride + callIndex] ?? 0n;
-      const after = checkpoints[probeIndex * stride + callIndex + 1] ?? 0n;
+      const before = row[callIndex] ?? 0n;
+      const after = row[callIndex + 1] ?? 0n;
       if (before > after) amount += before - after;
     }
     if (amount > tokenOutflow(probe.token, candidates, maxTokenOutflows)) {
