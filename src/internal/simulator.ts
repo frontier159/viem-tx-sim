@@ -60,7 +60,7 @@ const txSimulatorAbi = parseAbi([
   "struct SimulatedCall { address to; uint256 value; bytes data; }",
   "struct AllowanceProbe { address token; address spender; }",
   "struct BalanceProbe { address token; address account; }",
-  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; int256 nativeDelta; address[] observedTokens; address[] deltaTokens; int256[] tokenDeltas; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; uint256[] balanceCheckpoints; bool[] balanceProbeOk; }",
+  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; address[] observedTokens; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; uint256[] balanceCheckpoints; bool[] balanceProbeOk; }",
   "function simulate(SimulatedCall[] calls, address[] candidates, AllowanceProbe[] probes, BalanceProbe[] balanceProbes) returns (SimulationResult)",
   "function isValidSignature(bytes32 hash, bytes signature) view returns (bytes4)",
 ]);

@@ -8,7 +8,6 @@ contract TxSimulator is IERC1271Like {
     bytes4 internal constant ERC1271_INVALID_VALUE = 0xffffffff;
     bytes4 internal constant BALANCE_OF_SELECTOR = 0x70a08231;
     bytes4 internal constant ALLOWANCE_SELECTOR = 0xdd62ed3e;
-    uint256 internal constant MAX_INT256 = 2 ** 255 - 1;
 
     struct SimulatedCall {
         address to;
@@ -30,10 +29,7 @@ contract TxSimulator is IERC1271Like {
         bool success;
         uint256 failingCallIndex;
         bytes revertData;
-        int256 nativeDelta;
         address[] observedTokens;
-        address[] deltaTokens;
-        int256[] tokenDeltas;
         uint256[] maxTokenOutflows;
         uint256 maxNativeOutflow;
         uint256[] allowanceCheckpoints;
@@ -83,10 +79,15 @@ contract TxSimulator is IERC1271Like {
         (result.success, result.failingCallIndex, result.revertData, nativeMin) =
             _executeCalls(calls, candidates, probes, balanceProbes, executionState);
 
-        result.nativeDelta = _signedDelta(address(this).balance, nativeBefore);
         result.observedTokens = _trimAddresses(tokenState.observedScratch, tokenState.observedCount);
         result.maxNativeOutflow = nativeBefore >= nativeMin ? nativeBefore - nativeMin : 0;
-        _writeTokenResults(candidates, tokenState, result);
+
+        result.maxTokenOutflows = new uint256[](candidates.length);
+        for (uint256 i = 0; i < candidates.length; ++i) {
+            if (tokenState.isToken[i] && tokenState.beforeBalances[i] >= tokenState.minBalances[i]) {
+                result.maxTokenOutflows[i] = tokenState.beforeBalances[i] - tokenState.minBalances[i];
+            }
+        }
     }
 
     function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4) {
@@ -126,38 +127,6 @@ contract TxSimulator is IERC1271Like {
                 tokenState.observedScratch[tokenState.observedCount++] = candidates[i];
             }
         }
-    }
-
-    function _writeTokenResults(
-        address[] calldata candidates,
-        TokenState memory tokenState,
-        SimulationResult memory result
-    ) internal view {
-        result.maxTokenOutflows = new uint256[](candidates.length);
-        address[] memory deltaTokensScratch = new address[](candidates.length);
-        int256[] memory tokenDeltasScratch = new int256[](candidates.length);
-        uint256 deltaCount = 0;
-
-        for (uint256 i = 0; i < candidates.length; ++i) {
-            if (!tokenState.isToken[i]) continue;
-
-            if (tokenState.beforeBalances[i] >= tokenState.minBalances[i]) {
-                result.maxTokenOutflows[i] = tokenState.beforeBalances[i] - tokenState.minBalances[i];
-            }
-
-            (bool ok, uint256 afterBalance) = _tryBalanceOf(candidates[i], address(this));
-            if (!ok) continue;
-
-            int256 delta = _signedDelta(afterBalance, tokenState.beforeBalances[i]);
-            if (delta != 0) {
-                deltaTokensScratch[deltaCount] = candidates[i];
-                tokenDeltasScratch[deltaCount] = delta;
-                ++deltaCount;
-            }
-        }
-
-        result.deltaTokens = _trimAddresses(deltaTokensScratch, deltaCount);
-        result.tokenDeltas = _trimInts(tokenDeltasScratch, deltaCount);
     }
 
     function _executeCalls(
@@ -305,29 +274,8 @@ contract TxSimulator is IERC1271Like {
         allowance = abi.decode(data, (uint256));
     }
 
-    function _signedDelta(uint256 afterBalance, uint256 beforeBalance) internal pure returns (int256) {
-        if (afterBalance >= beforeBalance) {
-            uint256 positiveDiff = afterBalance - beforeBalance;
-            if (positiveDiff > MAX_INT256) return type(int256).max;
-            // forge-lint: disable-next-line(unsafe-typecast)
-            return int256(positiveDiff);
-        }
-
-        uint256 negativeDiff = beforeBalance - afterBalance;
-        if (negativeDiff > MAX_INT256) return type(int256).min;
-        // forge-lint: disable-next-line(unsafe-typecast)
-        return -int256(negativeDiff);
-    }
-
     function _trimAddresses(address[] memory input, uint256 length) internal pure returns (address[] memory output) {
         output = new address[](length);
-        for (uint256 i = 0; i < length; ++i) {
-            output[i] = input[i];
-        }
-    }
-
-    function _trimInts(int256[] memory input, uint256 length) internal pure returns (int256[] memory output) {
-        output = new int256[](length);
         for (uint256 i = 0; i < length; ++i) {
             output[i] = input[i];
         }
