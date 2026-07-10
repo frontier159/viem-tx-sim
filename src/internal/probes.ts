@@ -16,33 +16,6 @@ type ProbedAllowanceSlot = ProbedSlot & {
   spender: Address;
 };
 
-async function readBalanceOf(
-  args: RpcCallArgs & {
-    token: Address;
-    owner: Address;
-    stateOverride?: StateOverride;
-    debugStep?: string;
-  },
-): Promise<bigint | undefined> {
-  const data = encodeFunctionData({
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: [args.owner],
-  });
-
-  return readUint256Call({
-    client: args.client,
-    account: args.owner,
-    to: args.token,
-    data,
-    stateOverride: args.stateOverride,
-    gas: args.gas,
-    debug: args.debug,
-    debugStep: args.debugStep ?? "erc20.balanceOf",
-    ...blockOptionsSpread(args),
-  });
-}
-
 export async function readAllowance(
   args: RpcCallArgs & {
     token: Address;
@@ -71,6 +44,53 @@ export async function readAllowance(
   });
 }
 
+async function discoverSlot(
+  args: RpcCallArgs & {
+    token: Address;
+    owner: Address;
+    data: Hex;
+    sentinel: bigint;
+    stepPrefix: "balanceSlot" | "allowanceSlot";
+  },
+): Promise<Hex | undefined> {
+  let storageKeys: Hex[];
+  try {
+    const accessList = await createAccessList({
+      client: args.client,
+      from: args.owner,
+      to: args.token,
+      data: args.data,
+      gas: args.gas,
+      debug: args.debug,
+      debugStep: `${args.stepPrefix}.accessList`,
+      ...blockOptionsSpread(args),
+    });
+    storageKeys = accessList
+      .filter((entry) => addressKey(entry.address) === addressKey(args.token))
+      .flatMap((entry) => entry.storageKeys);
+  } catch {
+    return undefined;
+  }
+
+  const sentinelHex = uint256Hex(args.sentinel);
+  for (const slot of storageKeys) {
+    const value = await readUint256Call({
+      client: args.client,
+      account: args.owner,
+      to: args.token,
+      data: args.data,
+      stateOverride: [{ address: args.token, stateDiff: [{ slot, value: sentinelHex }] }],
+      gas: args.gas,
+      debug: args.debug,
+      debugStep: `${args.stepPrefix}.verify`,
+      ...blockOptionsSpread(args),
+    });
+    if (value === args.sentinel) return slot;
+  }
+
+  return undefined;
+}
+
 export async function discoverBalanceSlot(
   args: RpcCallArgs & {
     token: Address;
@@ -84,41 +104,8 @@ export async function discoverBalanceSlot(
     args: [args.owner],
   });
 
-  let storageKeys: Hex[];
-  try {
-    const accessList = await createAccessList({
-      client: args.client,
-      from: args.owner,
-      to: args.token,
-      data,
-      gas: args.gas,
-      debug: args.debug,
-      debugStep: "balanceSlot.accessList",
-      ...blockOptionsSpread(args),
-    });
-    storageKeys = accessList
-      .filter((entry) => addressKey(entry.address) === addressKey(args.token))
-      .flatMap((entry) => entry.storageKeys);
-  } catch {
-    return undefined;
-  }
-
-  const sentinelHex = uint256Hex(args.sentinel);
-  for (const slot of storageKeys) {
-    const balance = await readBalanceOf({
-      client: args.client,
-      token: args.token,
-      owner: args.owner,
-      stateOverride: [{ address: args.token, stateDiff: [{ slot, value: sentinelHex }] }],
-      gas: args.gas,
-      debug: args.debug,
-      debugStep: "balanceSlot.verify",
-      ...blockOptionsSpread(args),
-    });
-    if (balance === args.sentinel) return { token: args.token, slot };
-  }
-
-  return undefined;
+  const slot = await discoverSlot({ ...args, data, stepPrefix: "balanceSlot" });
+  return slot === undefined ? undefined : { token: args.token, slot };
 }
 
 export async function discoverAllowanceSlot(
@@ -135,48 +122,8 @@ export async function discoverAllowanceSlot(
     args: [args.owner, args.spender],
   });
 
-  let storageKeys: Hex[];
-  try {
-    const accessList = await createAccessList({
-      client: args.client,
-      from: args.owner,
-      to: args.token,
-      data,
-      gas: args.gas,
-      debug: args.debug,
-      debugStep: "allowanceSlot.accessList",
-      ...blockOptionsSpread(args),
-    });
-    storageKeys = accessList
-      .filter((entry) => addressKey(entry.address) === addressKey(args.token))
-      .flatMap((entry) => entry.storageKeys);
-  } catch {
-    return undefined;
-  }
-
-  const sentinelHex = uint256Hex(args.sentinel);
-  for (const slot of storageKeys) {
-    const allowance = await readAllowance({
-      client: args.client,
-      token: args.token,
-      owner: args.owner,
-      spender: args.spender,
-      stateOverride: [{ address: args.token, stateDiff: [{ slot, value: sentinelHex }] }],
-      gas: args.gas,
-      debug: args.debug,
-      debugStep: "allowanceSlot.verify",
-      ...blockOptionsSpread(args),
-    });
-    if (allowance === args.sentinel) {
-      return {
-        token: args.token,
-        spender: args.spender,
-        slot,
-      };
-    }
-  }
-
-  return undefined;
+  const slot = await discoverSlot({ ...args, data, stepPrefix: "allowanceSlot" });
+  return slot === undefined ? undefined : { token: args.token, spender: args.spender, slot };
 }
 
 async function readUint256Call(
