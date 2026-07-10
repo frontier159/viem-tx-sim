@@ -131,9 +131,9 @@ Explicit queries, no discovery, one `eth_call`. Overrides only when previewing f
 
 ```mermaid
 flowchart TD
-    A["Build calls + explicit balanceQueries<br/>(you know which assets move)"] --> B{"Does from hold<br/>the input assets?"}
-    B -- "yes" --> D["sim.simulate()<br/>one eth_call"]
-    B -- "no: view-only / preview" --> C["tokenOverrides.forBalances / forAllowances<br/>+ nativeBalanceOverrides"]
+    A["Build calls + explicit balanceQueries<br/>(you know which assets move)"] --> B{"Does <u>from</u> have<br/>required balance<br/> & approvals set?"}
+    B -- "yes" --> D["sim.simulate()"]
+    B -- "no" --> C["prepare overrides:<br/>sim.tokenOverrides.forBalances()<br/>sim.tokenOverrides.forAllowances()"]
     C -- "tokenSlotOverrides" --> D
     D --> E{"result.status"}
     E -- "success" --> F["balanceDeltas:<br/>before / after / delta / byCall"]
@@ -146,7 +146,7 @@ Discovery first, and `estimateRequirements()` when a revert (or a funding questi
 
 ```mermaid
 flowchart TD
-    A["Arbitrary tx or ERC-5792 batch"] --> B["balanceQueries.forUser()<br/>N access lists + 1 filter call"]
+    A["Arbitrary tx or ERC-5792 batch"] --> B["sim.balanceQueries.forUser()<br/>"]
     B --> C["sim.simulate()"]
     C --> D{"result.status"}
     D -- "success" --> E["Confirmation screen:<br/>balanceDeltas per call"]
@@ -171,9 +171,7 @@ const result = await sim.simulate({
   calls: partialBundle,
   balanceQueries,
 });
-const leftoverAfterZap = result.balanceDeltas.find(
-  (delta) => delta.asset === flashToken && delta.account === pluginAddress,
-)?.byCall[0];
+// result.balanceDeltas
 ```
 
 ## Balance and allowance overrides
