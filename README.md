@@ -1,73 +1,28 @@
 # viem-tx-sim
 
-- [Motivation](#motivation)
-- [Mental model](#mental-model)
-- [API at a glance](#api-at-a-glance)
-- [Getting started](#getting-started)
-- [Preparing balance and allowance overrides](#preparing-balance-and-allowance-overrides)
-- [Estimating asset requirements (optional)](#estimating-asset-requirements-optional)
-- [Debugging](#debugging)
-- [Decoding Reverts](#decoding-reverts)
-- [Known limitations](#known-limitations)
-- [Development](#development)
-- [Scope](#scope)
+Preview a transaction's or ERC-5792 batch's asset changes before anyone signs, using nothing but standard JSON-RPC.
 
-RPC-only transaction simulation helpers for [viem](https://viem.sh) applications: preview the asset changes of a transaction (or an ERC-5792 batch) before anyone signs it, using nothing but standard JSON-RPC.
+`viem-tx-sim` injects a never-deployed ghost contract at the user's own address via `eth_call` state overrides, so every downstream contract sees the real `msg.sender` — balance reads, allowance checks, and `msg.sender`-gated logic behave exactly as they would in the real transaction. It is RPC-only: no token lists, no indexers, no centralized simulation APIs, and [viem](https://viem.sh) is the only runtime dependency. Batch calls execute sequentially inside one EVM context, so an approval in call 1 is visible to a swap in call 2, and the core simulation is a single `eth_call` when you already know what to observe.
 
-## Motivation
+Before adopting, know three things:
 
-Credit to the [apoorv X thread](https://x.com/apoorveth/status/2041544070481449266), transcribed in [motivation.md](https://github.com/frontier159/viem-tx-sim/blob/main/docs/motivation.md).
+- **RPC requirements.** `sim.simulate()` needs `eth_call` with state overrides. The discovery and override helpers (`balanceQueries.forUser()`, `balanceQueries.discoverErc20s()`, `tokenOverrides.*`) additionally need `eth_createAccessList`, including access lists returned for reverting calls. Missing support surfaces as `StateOverrideUnsupportedError` / `AccessListUnsupportedError`.
+- **A simulation is a preview, not a guarantee.** Results reflect one block's state, and an adversarial contract can detect the simulation and behave differently on-chain. See [Known limitations](#known-limitations).
+- **Pre-1.0.** Minor versions may include breaking changes until 1.0.0.
 
-Every wallet shows "asset changes" before you sign. Most do it by sending your data to a centralized simulation API — a single point of failure and a privacy leak. viem-tx-sim makes the EVM do the work itself:
-
-1. For wallet-style previews, `sim.balanceQueries.forUser()` can dry-run each call with `eth_createAccessList` and filter touched contracts into token balance queries, with no token lists or indexers.
-2. `sim.simulate()` takes explicit balance queries and performs one `eth_call` with state overrides, injecting a never-deployed `TxSimulator` contract **at the user's own address**. Because the simulator runs as the user, `address(this)` and `msg.sender` are the real account, so balance reads, allowance checks, and `msg.sender`-gated logic behave exactly as they would in the real transaction. Batch calls run sequentially in one EVM context, so an approval in call 1 is visible to a swap in call 2.
-
-The core simulation is one RPC call when you already know what to observe. The wallet discovery flow is N access lists + one token-filter call + one simulation for an N-call batch. Zero servers, zero trust assumptions. See [docs/motivation.md](https://github.com/frontier159/viem-tx-sim/blob/main/docs/motivation.md) for the design's origin story, including how Permit2's ERC-1271 path and proxy-token storage are handled.
-
-## Mental model
-
-Everything passed to `sim.simulate()` is explicit: `calls` are what executes, `balanceQueries` are what you observe, and `tokenSlotOverrides` / `nativeBalanceOverrides` are the state assumptions you want to forge. `simulate()` does not discover tokens, retry, or forge balances by itself. The helper namespaces only build those data inputs: `balanceQueries.*` builds observations, and `tokenOverrides.*` builds token assumptions.
-
-## API at a glance
-
-```ts
-const sim = TxSimulator.create({ client, gas, debug, errorAbi });
-
-const result = await sim.simulate({
-  from,
-  calls, // SimulatedCall[]
-  balanceQueries, // BalanceQuery[]
-  tokenSlotOverrides, // TokenSlotOverride[] | undefined
-  nativeBalanceOverrides, // NativeBalanceOverride[] | undefined
-  gas,
-  debug,
-  errorAbi,
-  blockNumber,
-  blockTag,
-});
-// success -> { status: "success", balanceDeltas, unresolved }
-// reverted -> success fields + { revertData, failingCallIndex, revertReason?, revertError? }
-
-await sim.balanceQueries.forUser({ from, calls }); // BalanceQuery[]
-await sim.balanceQueries.discoverErc20s({ from, calls }); // Address[]
-await sim.tokenOverrides.forBalances({ from, tokens }); // PreparedBalanceOverrides
-await sim.tokenOverrides.forAllowances({ from, pairs }); // PreparedAllowanceOverrides
-await sim.tokenOverrides.estimateRequirements({ from, calls }); // EstimatedAssetRequirements
-
-// Exports: DEFAULT_SIMULATION_GAS_LIMIT, OVERRIDE_TOKEN_AMOUNT, TxSimError,
-// AccessListUnsupportedError, StateOverrideUnsupportedError, InvalidSimulationInputError.
-```
-
-## Getting started
+## Install
 
 ```sh
 pnpm add viem-tx-sim viem
+# or
+npm install viem-tx-sim viem
 ```
 
-This package is ESM-only (no CommonJS build) and requires Node 20 or newer. `viem` is a peer dependency, so install it alongside `viem-tx-sim` as shown above.
+The package is ESM-only (no CommonJS build) and requires Node 20 or newer. `viem` (2.x) is a peer dependency, so install it alongside `viem-tx-sim` as shown above.
 
 Pre-release consumers can install from git with `pnpm add github:frontier159/viem-tx-sim`; the `prepare` script builds `dist/` with `tsc` from committed contract bytecode, so Foundry is not needed at install time.
+
+## Quick start
 
 Simulate depositing 1,000 USDS into the sUSDS ERC-4626 vault on mainnet — an approve followed by a deposit, as one atomic batch:
 
@@ -121,9 +76,53 @@ console.log(result.balanceDeltas);
 
 `balanceDeltas` mirror your `balanceQueries` in order, including zero deltas, with raw `bigint` amounts in each asset's own units. `byCall` is index-aligned with `calls`, sums to `delta`, and entries from a failing call onward are `0n` on a returned revert. A revert is returned as `status: "reverted"`, never thrown; checking `status` gives typed access to `revertData` and `failingCallIndex`.
 
-`sim.simulate()` observes only the balances you ask for and does not retry or forge state by itself. If `user` doesn't actually hold 1,000 USDS (say you're previewing for a view-only address), prepare and pass a balance override — see the next section. Query the token or native accounts you forge if you want to observe them. `DEFAULT_SIMULATION_GAS_LIMIT` is exported for callers that want to pass or display the default 16M simulation gas budget.
+`sim.simulate()` observes only the balances you ask for and does not retry or forge state by itself. If `user` doesn't actually hold 1,000 USDS (say you're previewing for a view-only address), prepare and pass a balance override — see [Balance and allowance overrides](#balance-and-allowance-overrides). `DEFAULT_SIMULATION_GAS_LIMIT` is exported for callers that want to pass or display the default 16M simulation gas budget.
 
-If your dapp already knows what it needs to inspect, skip wallet discovery and pass explicit queries. This can observe any account, not just `from`:
+## How it works
+
+Every wallet shows "asset changes" before you sign. Most do it by sending your data to a centralized simulation API — a single point of failure and a privacy leak. `viem-tx-sim` makes the EVM do the work itself: one `eth_call` with state overrides places the `TxSimulator` ghost contract at `from`, so `address(this)` and `msg.sender` are the real account while the calls execute and balances are checkpointed around each one. Zero servers, zero trust assumptions.
+
+The mental model: everything passed to `sim.simulate()` is explicit. `calls` are what executes, `balanceQueries` are what you observe, and `tokenSlotOverrides` / `nativeBalanceOverrides` are the state assumptions you want to forge. `simulate()` does not discover tokens, retry, or forge balances by itself — the helper namespaces only build those data inputs: `balanceQueries.*` builds observations, and `tokenOverrides.*` builds token assumptions.
+
+The design comes from the [apoorv X thread](https://x.com/apoorveth/status/2041544070481449266), transcribed in [docs/motivation.md](https://github.com/frontier159/viem-tx-sim/blob/main/docs/motivation.md) — including how Permit2's ERC-1271 path and proxy-token storage are handled.
+
+Scope is deliberately narrow: the library returns explicit raw balance observations only. Token metadata, token lists, indexers, centralized simulation APIs, approval UX, and price enrichment are intentionally out of scope. The library never constructs or signs permits or EIP-712 payloads; callers bring fully signed calldata, and already-signed permit calls simulate as ordinary calls.
+
+## API at a glance
+
+```ts
+const sim = TxSimulator.create({ client, gas, debug, errorAbi });
+
+const result = await sim.simulate({
+  from,
+  calls, // SimulatedCall[]
+  balanceQueries, // BalanceQuery[]
+  tokenSlotOverrides, // TokenSlotOverride[] | undefined
+  nativeBalanceOverrides, // NativeBalanceOverride[] | undefined
+  gas,
+  debug,
+  errorAbi,
+  blockNumber,
+  blockTag,
+});
+// success -> { status: "success", balanceDeltas, unresolved }
+// reverted -> success fields + { revertData, failingCallIndex, revertSelector?, revertReason?, revertError? }
+
+await sim.balanceQueries.forUser({ from, calls }); // BalanceQuery[]
+await sim.balanceQueries.discoverErc20s({ from, calls }); // Address[]
+await sim.tokenOverrides.forBalances({ from, tokens }); // PreparedBalanceOverrides
+await sim.tokenOverrides.forAllowances({ from, pairs }); // PreparedAllowanceOverrides
+await sim.tokenOverrides.estimateRequirements({ from, calls }); // EstimatedAssetRequirements
+
+// Exports: DEFAULT_SIMULATION_GAS_LIMIT, OVERRIDE_TOKEN_AMOUNT, TxSimError,
+// AccessListUnsupportedError, StateOverrideUnsupportedError, InvalidSimulationInputError.
+```
+
+## Choosing what to observe
+
+`sim.balanceQueries.forUser()` is the wallet-style discovery helper: it dry-runs each call with `eth_createAccessList`, filters touched contracts into token balance queries with one simulator call, and returns native plus token queries for `from` — no token lists or indexers. For an N-call batch, the full wallet flow is N access lists + one token-filter call + one simulation. `sim.balanceQueries.discoverErc20s()` exposes just the filtered token list when you want to map queries yourself.
+
+If your dapp already knows what it needs to inspect, skip discovery and pass explicit queries. These can observe any account, not just `from`:
 
 ```ts
 const balanceQueries = tokens.map((asset) => ({ asset, account: pluginAddress }));
@@ -137,9 +136,7 @@ const leftoverAfterZap = result.balanceDeltas.find(
 )?.byCall[0];
 ```
 
-For approvals, either include an `approve` / `permit` call in `calls` so later calls see it, or use `sim.tokenOverrides.forAllowances()` when you need to simulate already-approved state without sending an approval call.
-
-## Preparing balance and allowance overrides
+## Balance and allowance overrides
 
 Override preparation is explicit and cacheable. Preparation returns ready-to-use `TokenSlotOverride[]` entries, so pass them into a single simulation run:
 
@@ -166,6 +163,12 @@ const result = await sim.simulate({
 
 Prepared balance overrides are reusable per token/owner, and prepared allowance overrides are reusable per token/owner/spender for the block/state you trust. Preparation pre-sets `amount` to the exported `OVERRIDE_TOKEN_AMOUNT` sentinel, a non-max `10^50` value chosen so standard ERC-20 allowance decrements remain observable. Handcrafted override amounts must be below `uint256.max`; max allowance skips decrements, and max balances can overflow on incoming transfers. Deltas for real holdings still work for rebasing tokens like stETH; only dealing hypothetical balances can fail, reported in `unresolved`.
 
+Query the token or native accounts you forge if you want to observe them.
+
+For approvals, either include an `approve` / `permit` call in `calls` so later calls see it, or use `sim.tokenOverrides.forAllowances()` when you need to simulate already-approved state without sending an approval call.
+
+## Native balance overrides
+
 Native balances do not need preparation or slot discovery. Set them directly with `nativeBalanceOverrides`, for `from` or any other account:
 
 ```ts
@@ -177,7 +180,7 @@ const result = await sim.simulate({
 });
 ```
 
-## Estimating asset requirements (optional)
+## Estimating asset requirements
 
 When you don't already know which balances and approvals a transaction needs, `sim.tokenOverrides.estimateRequirements()` measures them by forging generous state and observing per-call balance and allowance changes. It also forges native balance for `from`, so native zap-in routes from unfunded wallets report `requirements.native` instead of failing as a route error. Returned amounts are estimates measured under forged state and should be padded; pairs whose allowance is set inside the batch (approve or permit) are excluded, and measured allowance decreases are sanity-bounded by the token's gross outflow. Measurements discarded by that bound are reported under `unresolved.allowances`.
 
@@ -198,25 +201,17 @@ const result = await sim.simulate({
 });
 ```
 
+## Batches (ERC-5792)
+
+`calls` accepts one call or an ERC-5792-style sequential batch, executed inside a single EVM context by one `eth_call` — state changes from earlier calls are visible to later calls, as the [quick start](#quick-start) shows with approve-then-deposit. Per-call attribution comes back in `byCall` on each `BalanceDelta`, index-aligned with `calls`; on a revert, `failingCallIndex` identifies the failing call and `byCall` entries from that call onward are `0n`.
+
+## Decoding reverts
+
+Reverted simulations always return raw `revertData` and, when present, a `revertSelector`. Pass custom errors as `errorAbi` on `TxSimulator.create({ client, errorAbi })` or on a single `sim.simulate({ ..., errorAbi })` call to populate `revertError` and human-readable `revertReason`. For example: `errorAbi: parseAbi(["error InsufficientBalance(uint256 have, uint256 want)"])`.
+
 ## Debugging
 
-Set `VIEM_TX_SIM_DEBUG_RPC=1` to log RPC debug events to the console without touching call sites.
-
-Enable logging per simulation call:
-
-```ts
-import { TxSimulator } from "viem-tx-sim";
-
-const sim = TxSimulator.create({ client });
-const result = await sim.simulate({
-  from,
-  calls: [{ to, data, value: 0n }],
-  balanceQueries: [],
-  debug: true,
-});
-```
-
-Or pass a callback to collect structured events:
+Set `VIEM_TX_SIM_DEBUG_RPC=1` to log RPC debug events to the console without touching call sites. In code, pass `debug: true` (on `TxSimulator.create` or per call) for console logging, or a callback to collect structured events:
 
 ```ts
 await sim.simulate({
@@ -228,12 +223,6 @@ await sim.simulate({
   },
 });
 ```
-
-## Decoding Reverts
-
-Reverted simulations always return raw `revertData` and, when present, a `revertSelector`.
-Pass custom errors as `errorAbi` on `TxSimulator.create({ client, errorAbi })` or on a single `sim.simulate({ ..., errorAbi })` call to populate `revertError` and human-readable `revertReason`.
-For example: `errorAbi: parseAbi(["error InsufficientBalance(uint256 have, uint256 want)"])`.
 
 ## Known limitations
 
@@ -283,7 +272,7 @@ pnpm install
 
 If your version manager still selects pnpm 11 under Node 20, either switch pnpm to 10 or switch Node to 22.13+.
 
-Building and testing requires [Foundry](https://getfoundry.sh) (`forge` compiles `TxSimulator.sol`, `anvil` backs the test suite):
+Building and testing requires [Foundry](https://getfoundry.sh) (`forge` compiles `TxSimulator.sol`, `anvil` backs the test suite). Foundry nightly is expected, because local access-list-on-revert behavior must match production RPCs:
 
 ```sh
 pnpm build
@@ -306,6 +295,6 @@ MAINNET_RPC_URL=$MAINNET_RPC_URL pnpm test:mainnet
 
 Set `MAINNET_BLOCK_NUMBER` to override the pinned default block.
 
-## Scope
+## License
 
-The library returns explicit raw balance observations only. Token metadata, token lists, indexers, centralized simulation APIs, approval UX, and price enrichment are intentionally out of scope. The library never constructs or signs permits or EIP-712 payloads; callers bring fully signed calldata, and already-signed permit calls simulate as ordinary calls.
+[MIT](https://github.com/frontier159/viem-tx-sim/blob/main/LICENSE) © frontier159
