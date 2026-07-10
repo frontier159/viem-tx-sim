@@ -4,6 +4,11 @@ Preview a transaction's or ERC-5792 batch's asset changes before anyone signs, u
 
 `viem-tx-sim` injects a never-deployed ghost contract at the user's own address via `eth_call` state overrides, so every downstream contract sees the real `msg.sender` — balance reads, allowance checks, and `msg.sender`-gated logic behave exactly as they would in the real transaction. It is RPC-only: no token lists, no indexers, no centralized simulation APIs, and [viem](https://viem.sh) is the only runtime dependency. Batch calls execute sequentially inside one EVM context, so an approval in call 1 is visible to a swap in call 2, and the core simulation is a single `eth_call` when you already know what to observe.
 
+Who it's for:
+
+1. **Dapps** — preview the flows you already know before prompting a signature: you know the contracts involved, so one `eth_call` with explicit `balanceQueries` shows the user exactly what a swap or deposit will move, `tokenOverrides.estimateRequirements()` tells them what balance or allowance they're missing before they hit a revert, and any address can be simulated — including view-only or impersonated accounts, no key involved.
+2. **Wallets** — render an "asset changes" confirmation screen for arbitrary incoming transactions and ERC-5792 batches: `balanceQueries.forUser()` discovers which assets a call touches with no token lists, indexers, or centralized simulation APIs, and because the simulation runs with the real `msg.sender`, approval- and permit-gated flows preview the way they will execute.
+
 Before adopting, know three things:
 
 - **RPC requirements.** `sim.simulate()` needs `eth_call` with state overrides. The discovery and override helpers (`balanceQueries.forUser()`, `balanceQueries.discoverErc20s()`, `tokenOverrides.*`) additionally need `eth_createAccessList`, including access lists returned for reverting calls. Missing support surfaces as `StateOverrideUnsupportedError` / `AccessListUnsupportedError`.
