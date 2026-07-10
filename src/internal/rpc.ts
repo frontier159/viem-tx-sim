@@ -126,14 +126,25 @@ export function formatRpcError(prefix: string, cause: unknown): string {
   return prefix;
 }
 
+// Classifies an execution revert on structured signals, not exact provider prose: JSON-RPC error
+// code 3 (geth-family's `execution reverted` code, preserved by viem on the cause chain) or a
+// message containing "revert". Providers word reverts differently, so match the signal, not the text.
+function hasRevertCode(cause: unknown): boolean {
+  for (let c = cause; typeof c === "object" && c !== null; c = (c as { cause?: unknown }).cause) {
+    if ((c as { code?: unknown }).code === 3) return true;
+  }
+  return false;
+}
+
 function isExecutionRevert(cause: unknown): boolean {
-  if (!(cause instanceof Error)) return false;
-  return /execution reverted|Execution reverted/i.test(cause.message);
+  if (hasRevertCode(cause)) return true;
+  return cause instanceof Error && /revert/i.test(cause.message);
 }
 
 function isRpcExecutionRevert(error: AccessListRpcResult["error"]): boolean {
+  if (typeof error === "object" && error !== null && hasRevertCode(error)) return true;
   const message = typeof error === "string" ? error : error?.message;
-  return message !== undefined && /execution reverted|Execution reverted/i.test(message);
+  return message !== undefined && /revert/i.test(message);
 }
 
 async function requestAccessList(

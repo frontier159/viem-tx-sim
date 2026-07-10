@@ -130,6 +130,82 @@ describe("error handling", () => {
     });
   });
 
+  it("treats an alternately-worded access-list revert as empty candidate discovery", async () => {
+    const sim = simulatorFor({
+      eth_createAccessList: () => {
+        throw new Error("transaction reverted");
+      },
+      eth_call: () => encodeSimulationResult(),
+    });
+
+    await expect(
+      sim.balanceQueries.forUser({ from, calls: [{ to, data: "0x" }] }),
+    ).resolves.toEqual([{ asset: "native", account: from }]);
+  });
+
+  it("treats a code-3 access-list error as empty candidate discovery despite non-revert prose", async () => {
+    const sim = simulatorFor({
+      eth_createAccessList: () => {
+        throw Object.assign(new Error("VM execution error"), { code: 3 });
+      },
+      eth_call: () => encodeSimulationResult(),
+    });
+
+    await expect(
+      sim.balanceQueries.forUser({ from, calls: [{ to, data: "0x" }] }),
+    ).resolves.toEqual([{ asset: "native", account: from }]);
+  });
+
+  it("rejects an infrastructure access-list error with a typed error (negative control)", async () => {
+    const sim = simulatorFor({
+      eth_createAccessList: () => {
+        throw new Error("connection refused");
+      },
+    });
+
+    await expect(
+      sim.balanceQueries.forUser({ from, calls: [{ to, data: "0x" }] }),
+    ).rejects.toBeInstanceOf(AccessListUnsupportedError);
+  });
+
+  it("falls back to call targets on lowercase insufficient-funds during estimation", async () => {
+    const events: { step: string; phase: string; details?: Record<string, unknown> }[] = [];
+    const sim = simulatorFor({
+      eth_createAccessList: () => {
+        throw new Error("insufficient funds for gas * price + value");
+      },
+      eth_call: () => encodeSimulationResult(),
+    });
+
+    const result = await sim.tokenOverrides.estimateRequirements({
+      from,
+      calls: [{ to, data: "0x" }],
+      debug: (event) => events.push(event),
+    });
+
+    expect(result.status).toBe("success");
+    expect(
+      events.some(
+        (event) =>
+          event.step === "txSimulator.simulate" &&
+          event.phase === "start" &&
+          event.details?.candidates === 1,
+      ),
+    ).toBe(true);
+  });
+
+  it("rethrows an infrastructure error from the estimator", async () => {
+    const sim = simulatorFor({
+      eth_createAccessList: () => {
+        throw new Error("connection refused");
+      },
+    });
+
+    await expect(
+      sim.tokenOverrides.estimateRequirements({ from, calls: [{ to, data: "0x" }] }),
+    ).rejects.toBeInstanceOf(AccessListUnsupportedError);
+  });
+
   it("formats a Panic(uint256) revert from the simulator", async () => {
     const panic = encodeErrorResult({
       abi: parseAbi(["error Panic(uint256)"]),

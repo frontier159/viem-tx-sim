@@ -150,7 +150,7 @@ export async function estimateAssetRequirements(
 export const estimateTokenOverrideRequirements = estimateAssetRequirements;
 
 function isInsufficientFunds(cause: unknown): boolean {
-  return cause instanceof Error && cause.message.includes("Insufficient funds");
+  return cause instanceof Error && /insufficient (funds|balance)/i.test(cause.message);
 }
 
 function allowancePairs(
