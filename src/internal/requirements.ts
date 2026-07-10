@@ -69,22 +69,24 @@ export async function estimateAssetRequirements(
     (address) => addressKey(address) !== addressKey(args.from),
   );
 
-  const balanceOverrides = await prepareBalanceOverrides({
-    client: args.client,
-    from: args.from,
-    tokens,
-    gas: args.gas,
-    debug: args.debug,
-    ...blockOptionsSpread(args),
-  });
-  const allowanceOverrides = await prepareAllowanceOverrides({
-    client: args.client,
-    from: args.from,
-    pairs: allowancePairs(tokens, spenders),
-    gas: args.gas,
-    debug: args.debug,
-    ...blockOptionsSpread(args),
-  });
+  const [balanceOverrides, allowanceOverrides] = await Promise.all([
+    prepareBalanceOverrides({
+      client: args.client,
+      from: args.from,
+      tokens,
+      gas: args.gas,
+      debug: args.debug,
+      ...blockOptionsSpread(args),
+    }),
+    prepareAllowanceOverrides({
+      client: args.client,
+      from: args.from,
+      pairs: allowancePairs(tokens, spenders),
+      gas: args.gas,
+      debug: args.debug,
+      ...blockOptionsSpread(args),
+    }),
+  ]);
   const balanceSlots = balanceOverrides.slots;
   const allowanceSlots = allowanceOverrides.slots;
   const allowanceProbes = allowanceSlots.map((slot) => ({
@@ -146,8 +148,6 @@ export async function estimateAssetRequirements(
 
   return { status: "success", ...shared };
 }
-
-export const estimateTokenOverrideRequirements = estimateAssetRequirements;
 
 function isInsufficientFunds(cause: unknown): boolean {
   return cause instanceof Error && /insufficient (funds|balance)/i.test(cause.message);

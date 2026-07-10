@@ -174,7 +174,7 @@ async function readUint256Call(
     );
     const data = getCallData(result);
     if (data.length < 66) return undefined;
-    return BigInt(data);
+    return BigInt(data.slice(0, 66));
   } catch {
     return undefined;
   }

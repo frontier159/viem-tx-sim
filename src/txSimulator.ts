@@ -4,10 +4,10 @@ import { DEFAULT_SIMULATION_GAS_LIMIT } from "./constants.js";
 import { InvalidSimulationInputError } from "./errors.js";
 import { buildBalanceResults } from "./internal/checkpoints.js";
 import { discoverErc20s, forUserBalanceQueries } from "./internal/queryDiscovery.js";
-import { estimateTokenOverrideRequirements } from "./internal/requirements.js";
+import { estimateAssetRequirements } from "./internal/requirements.js";
 import { blockOptionsSpread, type ClientArgs } from "./internal/rpc.js";
 import { runSimulator } from "./internal/simulator.js";
-import { prepareAllowanceTokenOverrides, prepareBalanceTokenOverrides } from "./internal/slots.js";
+import { prepareAllowanceOverrides, prepareBalanceOverrides } from "./internal/slots.js";
 import type {
   BalanceQuery,
   ForUserBalanceQueriesArgs,
@@ -168,11 +168,11 @@ export const TxSimulator = {
       },
       tokenOverrides: {
         forBalances: (args) =>
-          prepareBalanceTokenOverrides({ ...args, ...defaults(args), client: bound.client }),
+          prepareBalanceOverrides({ ...args, ...defaults(args), client: bound.client }),
         forAllowances: (args) =>
-          prepareAllowanceTokenOverrides({ ...args, ...defaults(args), client: bound.client }),
+          prepareAllowanceOverrides({ ...args, ...defaults(args), client: bound.client }),
         estimateRequirements: (args) =>
-          estimateTokenOverrideRequirements({
+          estimateAssetRequirements({
             ...args,
             ...revertDefaults(args),
             client: bound.client,

@@ -62,8 +62,6 @@ export function buildCallParameters(
   ) satisfies CallParameters;
 }
 
-export type AccessListEntry = AccessList[number];
-
 type AccessListRpcRequest = {
   from: Address;
   to: Address;
@@ -162,7 +160,7 @@ async function requestAccessList(
   });
 }
 
-export function emitDebug(debug: SimulationDebug | undefined, event: SimulationDebugEvent): void {
+function emitDebug(debug: SimulationDebug | undefined, event: SimulationDebugEvent): void {
   if (typeof debug === "function") {
     debug(event);
     return;

@@ -195,9 +195,6 @@ function mappingSlot(key: Address, baseSlot: Hex | bigint): Hex {
   );
 }
 
-export const prepareBalanceTokenOverrides = prepareBalanceOverrides;
-export const prepareAllowanceTokenOverrides = prepareAllowanceOverrides;
-
 function allowanceSlotFor(owner: Address, spender: Address, base: bigint): Hex {
   return mappingSlot(spender, mappingSlot(owner, base));
 }
