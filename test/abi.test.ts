@@ -3,19 +3,6 @@ import { describe, expect, it } from "vitest";
 import { txSimulatorAbi } from "../src/internal/simulator.js";
 import { artifact } from "./helpers/artifacts.js";
 
-/** Strips forge-only `internalType` annotations so shapes compare against parseAbi output. */
-function stripInternalType(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stripInternalType);
-  if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([key]) => key !== "internalType")
-        .map(([key, entry]) => [key, stripInternalType(entry)]),
-    );
-  }
-  return value;
-}
-
 /**
  * Normalizes a function ABI entry for comparison: strips forge-only
  * `internalType`, then drops the top-level output-parameter `name`. Solidity's
@@ -27,7 +14,18 @@ function stripInternalType(value: unknown): unknown {
  * renamed/reordered/retyped field still fails.
  */
 function normalizeFn(entry: unknown): unknown {
-  const stripped = stripInternalType(entry) as Record<string, unknown>;
+  const strip = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(strip);
+    if (typeof value === "object" && value !== null) {
+      return Object.fromEntries(
+        Object.entries(value)
+          .filter(([key]) => key !== "internalType")
+          .map(([key, child]) => [key, strip(child)]),
+      );
+    }
+    return value;
+  };
+  const stripped = strip(entry) as Record<string, unknown>;
   const outputs = stripped.outputs;
   if (Array.isArray(outputs)) {
     stripped.outputs = outputs.map((output) => {
@@ -52,7 +50,7 @@ describe("txSimulatorAbi drift guard", () => {
         (entry) => entry.type === "function" && entry.name === declared.name,
       );
       expect(counterpart, `function ${declared.name} missing from artifact`).toBeDefined();
-      expect(normalizeFn(counterpart)).toEqual(normalizeFn(JSON.parse(JSON.stringify(declared))));
+      expect(normalizeFn(counterpart)).toEqual(normalizeFn(declared));
     }
   });
 });

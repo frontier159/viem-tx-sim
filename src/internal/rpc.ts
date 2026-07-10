@@ -140,7 +140,7 @@ function isExecutionRevert(cause: unknown): boolean {
 }
 
 function isRpcExecutionRevert(error: AccessListRpcResult["error"]): boolean {
-  if (typeof error === "object" && error !== null && hasRevertCode(error)) return true;
+  if (hasRevertCode(error)) return true;
   const message = typeof error === "string" ? error : error?.message;
   return message !== undefined && /revert/i.test(message);
 }
