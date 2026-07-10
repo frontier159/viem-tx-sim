@@ -18,7 +18,7 @@ jobs:
           # keep in lockstep with release.yml
           node-version: 24.18.0
       - run: corepack enable
-      - uses: foundry-rs/foundry-toolchain@c7450ba673e133f5ee30098b3b54f444d3a2ca2d # v1.8.0
+      - uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1.9.0
         with:
           # Update to stable when a new release > v1.7.1 is out
           # Anvil fork tests depend on https://github.com/foundry-rs/foundry/pull/14569
