@@ -123,6 +123,41 @@ await sim.tokenOverrides.estimateRequirements({ from, calls }); // EstimatedAsse
 // AccessListUnsupportedError, StateOverrideUnsupportedError, InvalidSimulationInputError.
 ```
 
+## Simulation flows
+
+### Dapp flow — you know the calls and the assets
+
+Explicit queries, no discovery, one `eth_call`. Overrides only when previewing for an address that doesn't hold the inputs yet:
+
+```mermaid
+flowchart TD
+    A["Build calls + explicit balanceQueries<br/>(you know which assets move)"] --> B{"Does from hold<br/>the input assets?"}
+    B -- "yes" --> D["sim.simulate()<br/>one eth_call"]
+    B -- "no: view-only / preview" --> C["tokenOverrides.forBalances / forAllowances<br/>+ nativeBalanceOverrides"]
+    C -- "tokenSlotOverrides" --> D
+    D --> E{"result.status"}
+    E -- "success" --> F["balanceDeltas:<br/>before / after / delta / byCall"]
+    E -- "reverted" --> G["revertReason / revertError /<br/>failingCallIndex"]
+```
+
+### Wallet flow — arbitrary calls arrive
+
+Discovery first, and `estimateRequirements()` when a revert (or a funding question) needs answering:
+
+```mermaid
+flowchart TD
+    A["Arbitrary tx or ERC-5792 batch"] --> B["balanceQueries.forUser()<br/>N access lists + 1 filter call"]
+    B --> C["sim.simulate()"]
+    C --> D{"result.status"}
+    D -- "success" --> E["Confirmation screen:<br/>balanceDeltas per call"]
+    D -- "reverted" --> F["tokenOverrides.estimateRequirements()"]
+    F --> G["Show required balances + allowances<br/>(padded estimates)"]
+    F -- "requirements.slots as<br/>tokenSlotOverrides" --> C
+    F -- "revert unrelated to funding" --> H["Decode revert:<br/>revertReason / failingCallIndex"]
+```
+
+The loop back into `sim.simulate()` is the underfunded-preview trick: forge the missing balances and allowances, then show the user what the batch *would* do once funded and approved.
+
 ## Choosing what to observe
 
 `sim.balanceQueries.forUser()` is the wallet-style discovery helper: it dry-runs each call with `eth_createAccessList`, filters touched contracts into token balance queries with one simulator call, and returns native plus token queries for `from` — no token lists or indexers. For an N-call batch, the full wallet flow is N access lists + one token-filter call + one simulation. `sim.balanceQueries.discoverErc20s()` exposes just the filtered token list when you want to map queries yourself.
