@@ -91,7 +91,7 @@ mainnetDescribe("mainnet RPC integration", () => {
       expect.objectContaining({
         phase: "success",
         method: "eth_createAccessList",
-        step: "candidateDiscovery.accessList",
+        step: "balanceSlot.accessList",
       }),
     );
     expect(events.some((event) => event.step === "candidateDiscovery.dataAddress.getCode")).toBe(
