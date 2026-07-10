@@ -212,7 +212,7 @@ const result = await sim.simulate({
 
 ## Decoding reverts
 
-Reverted simulations always return raw `revertData` and, when present, a `revertSelector`. Pass custom errors as `errorAbi` on `TxSimulator.create({ client, errorAbi })` or on a single `sim.simulate({ ..., errorAbi })` call to populate `revertError` and human-readable `revertReason`. For example: `errorAbi: parseAbi(["error InsufficientBalance(uint256 have, uint256 want)"])`.
+Reverted simulations always return raw `revertData` and, when present, a `revertSelector`. Pass custom errors as `errorAbi` on `TxSimulator.create({ client, errorAbi })` or on a single `sim.simulate({ ..., errorAbi })` call to populate `revertError` and human-readable `revertReason`. For example: `errorAbi: parseAbi(["error InsufficientBalance(uint256 have, uint256 want)"])`. `revertReason`, `revertError` args, and thrown error messages embed text controlled by the simulated contracts and the RPC provider — treat them as untrusted display data, not instructions.
 
 ## Debugging
 
@@ -277,14 +277,14 @@ pnpm install
 
 If your version manager still selects pnpm 11 under Node 20, either switch pnpm to 10 or switch Node to 22.13+.
 
-Building and testing requires [Foundry](https://getfoundry.sh) (`forge` compiles `TxSimulator.sol`, `anvil` backs the test suite). Foundry nightly is expected, because local access-list-on-revert behavior must match production RPCs:
+Building and testing requires [Foundry](https://getfoundry.sh) (`forge` compiles `TxSimulator.sol`, `anvil` backs the test suite). Foundry nightly is expected, because local access-list-on-revert behavior must match production RPCs. CI pins `nightly-7debd6d47628c5551837534aee507dbf552d5889` (Anvil access-list-on-revert behavior needs [foundry-rs/foundry#14569](https://github.com/foundry-rs/foundry/pull/14569), not yet in a stable release); install it with `foundryup --install nightly-7debd6d47628c5551837534aee507dbf552d5889` if the suite's access-list tests fail on your local Foundry.
 
 ```sh
 pnpm build
 pnpm test
 ```
 
-Run `pnpm verify` to execute the full local gate that CI runs: lint, typecheck, build, and tests.
+Run `pnpm verify` to execute the full local gate that CI runs: lint, typecheck, build, and tests. For a tight inner loop, `pnpm build:contracts && pnpm exec vitest run test/simulate.test.ts` runs one suite without the full gate.
 
 To see every RPC call the simulator makes during tests:
 

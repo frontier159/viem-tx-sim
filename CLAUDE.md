@@ -42,6 +42,8 @@ Allowance base-slot inference lives in `src/internal/slots.ts`; non-standard lay
 - `src/internal/probes.ts`: balance/allowance reads and access-list-plus-sentinel slot verification.
 - `src/internal/slots.ts`: balance/allowance override preparation, allowance layout inference, mapping slot math.
 - `src/internal/requirements.ts`: optional asset-requirement estimation over forged state.
+- `src/internal/checkpoints.ts`: checkpoint-grid layout; the only TypeScript home of the probe-row stride math and balance-delta reconstruction.
+- `src/internal/debugSteps.ts`: the typed debug-step vocabulary every emit site imports (tests pin the names as literals per ADR-0001).
 - `contracts/TxSimulator.sol`: ghost contract executed only through `eth_call` state overrides.
 
 ## Invariants tests pin
