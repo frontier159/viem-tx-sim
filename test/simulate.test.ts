@@ -976,7 +976,9 @@ describe("viem-tx-sim", () => {
   it("reads state and executes at a pinned historical block", async () => {
     const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
-    const pinned = await ctx.publicClient.getBlockNumber();
+    // cacheTime: 0 — the write() receipt polling primes viem's getBlockNumber cache, so a
+    // cached (pre-mint) head here would pin a block where the account holds nothing.
+    const pinned = await ctx.publicClient.getBlockNumber({ cacheTime: 0 });
     await write(ctx, token, "mint", [ctx.account.address, 500n]);
 
     const data = encodeFunctionData({
