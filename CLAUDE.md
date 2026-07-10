@@ -17,7 +17,7 @@ Batch calls execute sequentially inside one EVM context, so state changes from e
 Foundry compiles `contracts/TxSimulator.sol`.
 `scripts/generate-txsim-bytecode.mjs` extracts the runtime bytecode and writes `src/generated/txSimulatorBytecode.ts`.
 Never hand-edit files under `src/generated/`; regenerate them with `pnpm build:contracts`.
-`dist/` is committed and is part of the published package output.
+`dist/` is gitignored and rebuilt at publish time (`prepublishOnly` runs the TS build); it is part of the published package output.
 
 `tokenOverrides.*` preparation is explicit.
 Balance and allowance overrides are prepared by access-list probing `balanceOf` / `allowance` data, then verifying a sentinel state override.

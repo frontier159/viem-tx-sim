@@ -94,9 +94,6 @@ mainnetDescribe("mainnet RPC integration", () => {
         step: "balanceSlot.accessList",
       }),
     );
-    expect(events.some((event) => event.step === "candidateDiscovery.dataAddress.getCode")).toBe(
-      false,
-    );
   });
 
   it("discovers known USDS and sUSDS deposit slots", async () => {

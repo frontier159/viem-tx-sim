@@ -18,3 +18,7 @@ The obvious fix — one shared constants module imported by both implementation 
 
 - Renaming a debug step is intentionally noisy: change the constant, then update every literal in tests as a conscious, reviewed act.
 - Future refactors must not "clean up" the test literals into constant imports — that would silently disarm the pinned invariant.
+
+## Scope note: pins vs mirrors
+
+This ADR applies to *pins* — assertions whose job is to catch the implementation changing. It does not extend to *mirrors* — test infrastructure that must merely stay in lockstep with the implementation. Concretely: the fake client's simulator ABI is deliberately **shared** (imported from `src/internal/simulator.ts`), not mirrored, because a diverging mirror only adds a second thing to update, while real ABI/bytecode drift is caught independently by the Anvil suites, which exercise the actual contract.
