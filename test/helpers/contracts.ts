@@ -17,9 +17,12 @@ export async function deploy(
     args,
   });
   const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status === "reverted" || receipt.contractAddress == null) {
+    throw new Error(`deploy of ${contractName} reverted (tx ${hash})`);
+  }
   return {
     abi: contract.abi,
-    address: getAddress(receipt.contractAddress!),
+    address: getAddress(receipt.contractAddress),
   };
 }
 
@@ -36,5 +39,8 @@ export async function write(
     functionName,
     args,
   });
-  await ctx.publicClient.waitForTransactionReceipt({ hash });
+  const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status === "reverted") {
+    throw new Error(`write ${functionName} reverted (tx ${hash})`);
+  }
 }

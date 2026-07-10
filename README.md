@@ -23,7 +23,7 @@ pnpm add viem-tx-sim viem
 npm install viem-tx-sim viem
 ```
 
-The package is ESM-only (no CommonJS build) and requires Node 20 or newer. `viem` (2.x) is a peer dependency, so install it alongside `viem-tx-sim` as shown above.
+The package is ESM-only (no CommonJS build) and requires Node 20 or newer. `viem` (`^2.8.0`) is a peer dependency, so install it alongside `viem-tx-sim` as shown above.
 
 Pre-release consumers can install from git with `pnpm add github:frontier159/viem-tx-sim`; the `prepare` script builds `dist/` with `tsc` from committed contract bytecode, so Foundry is not needed at install time.
 
