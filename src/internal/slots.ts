@@ -10,6 +10,7 @@ import type {
   TokenSlotOverride,
 } from "../types.js";
 import { addressKey, uint256Hex } from "./data.js";
+import { DEBUG_STEPS } from "./debugSteps.js";
 import { discoverAllowanceSlot, discoverBalanceSlot, readAllowance } from "./probes.js";
 import type { ClientArgs, RpcCallArgs } from "./rpc.js";
 import { blockOptionsSpread } from "./rpc.js";
@@ -177,7 +178,7 @@ async function computeAllowanceSlot(
     ],
     gas: args.gas,
     debug: args.debug,
-    debugStep: "allowanceSlot.computedVerify",
+    debugStep: DEBUG_STEPS.allowanceSlotComputedVerify,
     ...blockOptionsSpread(args),
   });
   if (allowance === args.sentinel) return { token: args.token, spender: args.spender, slot };
@@ -193,9 +194,6 @@ function mappingSlot(key: Address, baseSlot: Hex | bigint): Hex {
     ),
   );
 }
-
-export const prepareBalanceTokenOverrides = prepareBalanceOverrides;
-export const prepareAllowanceTokenOverrides = prepareAllowanceOverrides;
 
 function allowanceSlotFor(owner: Address, spender: Address, base: bigint): Hex {
   return mappingSlot(spender, mappingSlot(owner, base));

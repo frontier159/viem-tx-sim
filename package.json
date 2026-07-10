@@ -60,12 +60,12 @@
     "@types/node": "^20.19.0",
     "oxfmt": "^0.57.0",
     "oxlint": "^1.72.0",
-    "typescript": "^5.5.4",
+    "typescript": "^5.9.0",
     "viem": "^2.54.1",
     "vitest": "^2.1.9"
   },
   "peerDependencies": {
-    "viem": "2.x"
+    "viem": "^2.8.0"
   },
   "engines": {
     "node": ">=20"

@@ -7,7 +7,6 @@ import {
   slice,
   zeroAddress,
   zeroHash,
-  type Abi,
   type Address,
   type Hex,
 } from "viem";
@@ -21,6 +20,7 @@ import {
   type SimulationResult,
 } from "../src/index.js";
 import { artifact } from "./helpers/artifacts.js";
+import { deploy, write } from "./helpers/contracts.js";
 import { type AnvilTestContext, startAnvil } from "./helpers/anvil.js";
 
 describe("viem-tx-sim", () => {
@@ -167,8 +167,8 @@ describe("viem-tx-sim", () => {
   });
 
   it("mirrors balance queries including zero deltas", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    await write(token, "mint", [ctx.account.address, 1_000n]);
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
 
     const data = encodeFunctionData({
       abi: token.abi,
@@ -217,8 +217,8 @@ describe("viem-tx-sim", () => {
   });
 
   it("reports zero per-call balance changes for unaffected calls", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    await write(token, "mint", [ctx.account.address, 1_000n]);
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
 
     const transfer = encodeFunctionData({
       abi: token.abi,
@@ -259,8 +259,8 @@ describe("viem-tx-sim", () => {
   });
 
   it("reports ERC-20 balance deltas", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    await write(token, "mint", [ctx.account.address, 1_000n]);
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
 
     const data = encodeFunctionData({
       abi: token.abi,
@@ -285,7 +285,7 @@ describe("viem-tx-sim", () => {
   });
 
   it("supports safe NFT receipt at the injected account", async () => {
-    const nft = await deploy("MockERC721.sol", "MockERC721");
+    const nft = await deploy(ctx, "MockERC721.sol", "MockERC721");
     const data = encodeFunctionData({
       abi: nft.abi,
       functionName: "safeMint",
@@ -310,10 +310,10 @@ describe("viem-tx-sim", () => {
   });
 
   it("observes arbitrary accounts", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const spender = await deploy("Spender.sol", "Spender");
-    await write(token, "mint", [ctx.account.address, 1_000n]);
-    await write(token, "approve", [spender.address, 300n]);
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy(ctx, "Spender.sol", "Spender");
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
+    await write(ctx, token, "approve", [spender.address, 300n]);
 
     const data = encodeFunctionData({
       abi: spender.abi,
@@ -352,9 +352,9 @@ describe("viem-tx-sim", () => {
 
   it("prepares allowance slots for token outflow", async () => {
     const events: SimulationDebugEvent[] = [];
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const spender = await deploy("Spender.sol", "Spender");
-    await write(token, "mint", [ctx.account.address, 1_000n]);
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy(ctx, "Spender.sol", "Spender");
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
 
     const allowanceOverrides = await sim.tokenOverrides.forAllowances({
       from: ctx.account.address,
@@ -400,9 +400,9 @@ describe("viem-tx-sim", () => {
 
   it("infers public allowance slots after one probe", async () => {
     const events: SimulationDebugEvent[] = [];
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const spenderA = await deploy("Spender.sol", "Spender");
-    const spenderB = await deploy("Spender.sol", "Spender");
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spenderA = await deploy(ctx, "Spender.sol", "Spender");
+    const spenderB = await deploy(ctx, "Spender.sol", "Spender");
 
     const allowanceOverrides = await sim.tokenOverrides.forAllowances({
       from: ctx.account.address,
@@ -436,10 +436,12 @@ describe("viem-tx-sim", () => {
 
   it("discovers wallet balance queries from the access list", async () => {
     const events: SimulationDebugEvent[] = [];
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const spender = await deploy("StoredTokenSpender.sol", "StoredTokenSpender", [token.address]);
-    await write(token, "mint", [ctx.account.address, 1_000n]);
-    await write(token, "approve", [spender.address, 123n]);
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy(ctx, "StoredTokenSpender.sol", "StoredTokenSpender", [
+      token.address,
+    ]);
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
+    await write(ctx, token, "approve", [spender.address, 123n]);
 
     const data = encodeFunctionData({
       abi: spender.abi,
@@ -487,10 +489,12 @@ describe("viem-tx-sim", () => {
   });
 
   it("discovers ERC-20s for wallet balance queries", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const spender = await deploy("StoredTokenSpender.sol", "StoredTokenSpender", [token.address]);
-    await write(token, "mint", [ctx.account.address, 1_000n]);
-    await write(token, "approve", [spender.address, 123n]);
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy(ctx, "StoredTokenSpender.sol", "StoredTokenSpender", [
+      token.address,
+    ]);
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
+    await write(ctx, token, "approve", [spender.address, 123n]);
 
     const data = encodeFunctionData({
       abi: spender.abi,
@@ -512,8 +516,8 @@ describe("viem-tx-sim", () => {
   });
 
   it("uses caller-supplied balance storage overrides for view-only token balances", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const spender = await deploy("Spender.sol", "Spender");
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy(ctx, "Spender.sol", "Spender");
     const balanceOverrides = await sim.tokenOverrides.forBalances({
       from: ctx.account.address,
       tokens: [token.address],
@@ -556,7 +560,7 @@ describe("viem-tx-sim", () => {
   });
 
   it("reports unresolved balance slots", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const discovery = await sim.tokenOverrides.forBalances({
       from: ctx.account.address,
       tokens: [token.address, ctx.secondAccount.address],
@@ -569,9 +573,9 @@ describe("viem-tx-sim", () => {
   });
 
   it("keeps batch state changes visible between calls", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const spender = await deploy("Spender.sol", "Spender");
-    await write(token, "mint", [ctx.account.address, 1_000n]);
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy(ctx, "Spender.sol", "Spender");
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
 
     const approve = encodeFunctionData({
       abi: token.abi,
@@ -604,9 +608,9 @@ describe("viem-tx-sim", () => {
   });
 
   it("attributes token balance changes per call", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const spender = await deploy("RefundingSpender.sol", "RefundingSpender");
-    await write(token, "mint", [ctx.account.address, 1_000n]);
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy(ctx, "RefundingSpender.sol", "RefundingSpender");
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
 
     const approve = encodeFunctionData({
       abi: token.abi,
@@ -648,9 +652,9 @@ describe("viem-tx-sim", () => {
   });
 
   it("supports Permit2-style ERC-1271 signature checks caused by code injection", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const permit2 = await deploy("Permit2Like.sol", "Permit2Like");
-    await write(token, "mint", [ctx.account.address, 1_000n]);
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const permit2 = await deploy(ctx, "Permit2Like.sol", "Permit2Like");
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
     const hash = "0x1111111111111111111111111111111111111111111111111111111111111111";
     const signature = await ctx.account.sign({ hash });
 
@@ -685,7 +689,7 @@ describe("viem-tx-sim", () => {
   });
 
   it("verifies proxy token storage slots before overriding balances", async () => {
-    const implementation = await deploy("TestToken.sol", "TestToken", [
+    const implementation = await deploy(ctx, "TestToken.sol", "TestToken", [
       "Implementation",
       "IMPL",
       18,
@@ -706,7 +710,7 @@ describe("viem-tx-sim", () => {
       address: getAddress(receipt.contractAddress!),
       abi: implementation.abi,
     };
-    const spender = await deploy("Spender.sol", "Spender");
+    const spender = await deploy(ctx, "Spender.sol", "Spender");
 
     const balanceOverrides = await sim.tokenOverrides.forBalances({
       from: ctx.account.address,
@@ -749,8 +753,8 @@ describe("viem-tx-sim", () => {
   });
 
   it("combines balance and allowance overrides", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const spender = await deploy("Spender.sol", "Spender");
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy(ctx, "Spender.sol", "Spender");
     const balanceOverrides = await sim.tokenOverrides.forBalances({
       from: ctx.account.address,
       tokens: [token.address],
@@ -825,7 +829,7 @@ describe("viem-tx-sim", () => {
   });
 
   it("decodes custom error reverts with per-call ABI", async () => {
-    const target = await deploy("CustomErrorTarget.sol", "CustomErrorTarget");
+    const target = await deploy(ctx, "CustomErrorTarget.sol", "CustomErrorTarget");
     const errorAbi = parseAbi(["error InsufficientBalance(uint256 have, uint256 want)"]);
     const data = encodeFunctionData({
       abi: target.abi,
@@ -847,7 +851,7 @@ describe("viem-tx-sim", () => {
   });
 
   it("reports a revert selector when custom error ABI is not provided", async () => {
-    const target = await deploy("CustomErrorTarget.sol", "CustomErrorTarget");
+    const target = await deploy(ctx, "CustomErrorTarget.sol", "CustomErrorTarget");
     const data = encodeFunctionData({
       abi: target.abi,
       functionName: "failWithArgs",
@@ -867,7 +871,7 @@ describe("viem-tx-sim", () => {
   });
 
   it("merges bound and per-call error ABIs", async () => {
-    const target = await deploy("CustomErrorTarget.sol", "CustomErrorTarget");
+    const target = await deploy(ctx, "CustomErrorTarget.sol", "CustomErrorTarget");
     const customSim = TxSimulator.create({
       client: ctx.publicClient,
       errorAbi: parseAbi(["error Unauthorized()"]),
@@ -901,7 +905,7 @@ describe("viem-tx-sim", () => {
   });
 
   it("decodes built-in Error(string) reverts", async () => {
-    const target = await deploy("CustomErrorTarget.sol", "CustomErrorTarget");
+    const target = await deploy(ctx, "CustomErrorTarget.sol", "CustomErrorTarget");
     const data = encodeFunctionData({
       abi: target.abi,
       functionName: "failString",
@@ -919,9 +923,9 @@ describe("viem-tx-sim", () => {
   });
 
   it("returns transaction reverts with executed-prefix balance deltas", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const target = await deploy("RevertingTarget.sol", "RevertingTarget");
-    await write(token, "mint", [ctx.account.address, 1_000n]);
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const target = await deploy(ctx, "RevertingTarget.sol", "RevertingTarget");
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
     const transfer100 = encodeFunctionData({
       abi: token.abi,
       functionName: "transfer",
@@ -969,33 +973,31 @@ describe("viem-tx-sim", () => {
     ]);
   });
 
-  async function deploy(contractFile: string, contractName: string, args: readonly unknown[] = []) {
-    const contract = artifact(contractFile, contractName);
-    const hash = await ctx.walletClient.deployContract({
-      abi: contract.abi,
-      bytecode: contract.bytecode,
-      args,
-    });
-    const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash });
-    return {
-      abi: contract.abi,
-      address: getAddress(receipt.contractAddress!),
-    };
-  }
+  it("reads state and executes at a pinned historical block", async () => {
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
+    // cacheTime: 0 — the write() receipt polling primes viem's getBlockNumber cache, so a
+    // cached (pre-mint) head here would pin a block where the account holds nothing.
+    const pinned = await ctx.publicClient.getBlockNumber({ cacheTime: 0 });
+    await write(ctx, token, "mint", [ctx.account.address, 500n]);
 
-  async function write(
-    contract: { abi: Abi; address: Address },
-    functionName: string,
-    args: readonly unknown[] = [],
-  ) {
-    const hash = await ctx.walletClient.writeContract({
-      address: contract.address,
-      abi: contract.abi,
-      functionName,
-      args,
+    const data = encodeFunctionData({
+      abi: token.abi,
+      functionName: "transfer",
+      args: [ctx.secondAccount.address, 1n],
     });
-    await ctx.publicClient.waitForTransactionReceipt({ hash });
-  }
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: token.address, data }],
+      balanceQueries: [{ asset: token.address, account: ctx.account.address }],
+      blockNumber: pinned,
+    });
+
+    expect(result.status).toBe("success");
+    // `before` = the pre-second-mint balance, proving blockNumber threaded through
+    // both the state read and the call (latest would show 1_500n).
+    expect(balanceDelta(result, token.address)).toMatchObject({ before: 1_000n, delta: -1n });
+  });
 
   function tokenQueries(asset: Address, account = ctx.account.address): BalanceQuery[] {
     return [{ asset, account }];

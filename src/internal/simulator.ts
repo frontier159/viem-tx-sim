@@ -12,6 +12,8 @@ import {
 import type { RevertError, SimulatedCall, TokenSlotOverride } from "../types.js";
 import { InvalidSimulationInputError, StateOverrideUnsupportedError } from "../errors.js";
 import { txSimulatorRuntimeBytecode } from "../generated/txSimulatorBytecode.js";
+import { DEBUG_STEPS } from "./debugSteps.js";
+import type { DebugStep } from "./debugSteps.js";
 import {
   MAX_UINT256,
   addressKey,
@@ -54,11 +56,12 @@ export type SimulatorResult =
       failingCallIndex: number;
     });
 
-const txSimulatorAbi = parseAbi([
+/** @internal Also imported by test helpers to encode node-shaped simulator returndata. */
+export const txSimulatorAbi = parseAbi([
   "struct SimulatedCall { address to; uint256 value; bytes data; }",
   "struct AllowanceProbe { address token; address spender; }",
   "struct BalanceProbe { address token; address account; }",
-  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; int256 nativeDelta; address[] observedTokens; address[] deltaTokens; int256[] tokenDeltas; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; uint256[] balanceCheckpoints; bool[] balanceProbeOk; }",
+  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; address[] observedTokens; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; uint256[] balanceCheckpoints; bool[] balanceProbeOk; }",
   "function simulate(SimulatedCall[] calls, address[] candidates, AllowanceProbe[] probes, BalanceProbe[] balanceProbes) returns (SimulationResult)",
   "function isValidSignature(bytes32 hash, bytes signature) view returns (bytes4)",
 ]);
@@ -72,7 +75,7 @@ export async function runSimulator(
     extraStateOverrides?: readonly StateOverrideEntry[];
     allowanceProbes?: readonly { token: Address; spender: Address }[];
     balanceProbes?: readonly { token: Address | "native"; account: Address }[];
-    debugStep?: string;
+    debugStep?: DebugStep;
     errorAbi?: Abi;
   },
 ): Promise<SimulatorResult> {
@@ -108,7 +111,7 @@ export async function runSimulator(
       args.debug,
       {
         method: "eth_call",
-        step: args.debugStep ?? "txSimulator.simulate",
+        step: args.debugStep ?? DEBUG_STEPS.txSimulatorSimulate,
         details: {
           from: args.from,
           calls: args.calls.length,
@@ -201,7 +204,7 @@ export async function discoverCandidateAddresses(
         value: call.value ?? 0n,
         gas: args.gas,
         debug: args.debug,
-        debugStep: "candidateDiscovery.accessList",
+        debugStep: DEBUG_STEPS.candidateDiscoveryAccessList,
         ...blockOptionsSpread(args),
       }),
     ),

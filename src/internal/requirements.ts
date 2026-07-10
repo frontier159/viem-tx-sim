@@ -9,6 +9,7 @@ import type {
   SimulatedCall,
 } from "../types.js";
 import { OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
+import { probeRow } from "./checkpoints.js";
 import { prepareAllowanceOverrides, prepareBalanceOverrides } from "./slots.js";
 import { addressKey, uniqueAddresses } from "./data.js";
 import type { ClientArgs } from "./rpc.js";
@@ -68,22 +69,24 @@ export async function estimateAssetRequirements(
     (address) => addressKey(address) !== addressKey(args.from),
   );
 
-  const balanceOverrides = await prepareBalanceOverrides({
-    client: args.client,
-    from: args.from,
-    tokens,
-    gas: args.gas,
-    debug: args.debug,
-    ...blockOptionsSpread(args),
-  });
-  const allowanceOverrides = await prepareAllowanceOverrides({
-    client: args.client,
-    from: args.from,
-    pairs: allowancePairs(tokens, spenders),
-    gas: args.gas,
-    debug: args.debug,
-    ...blockOptionsSpread(args),
-  });
+  const [balanceOverrides, allowanceOverrides] = await Promise.all([
+    prepareBalanceOverrides({
+      client: args.client,
+      from: args.from,
+      tokens,
+      gas: args.gas,
+      debug: args.debug,
+      ...blockOptionsSpread(args),
+    }),
+    prepareAllowanceOverrides({
+      client: args.client,
+      from: args.from,
+      pairs: allowancePairs(tokens, spenders),
+      gas: args.gas,
+      debug: args.debug,
+      ...blockOptionsSpread(args),
+    }),
+  ]);
   const balanceSlots = balanceOverrides.slots;
   const allowanceSlots = allowanceOverrides.slots;
   const allowanceProbes = allowanceSlots.map((slot) => ({
@@ -146,10 +149,8 @@ export async function estimateAssetRequirements(
   return { status: "success", ...shared };
 }
 
-export const estimateTokenOverrideRequirements = estimateAssetRequirements;
-
 function isInsufficientFunds(cause: unknown): boolean {
-  return cause instanceof Error && cause.message.includes("Insufficient funds");
+  return cause instanceof Error && /insufficient (funds|balance)/i.test(cause.message);
 }
 
 function allowancePairs(
@@ -193,18 +194,18 @@ function requiredAllowances(
 } {
   const allowances: EstimatedAssetRequirements["allowances"] = [];
   const discarded: AllowanceSlotPair[] = [];
-  const stride = calls.length + 1;
 
   for (let probeIndex = 0; probeIndex < probes.length; ++probeIndex) {
     const probe = probes[probeIndex];
     if (probe === undefined) continue;
 
+    const row = probeRow(checkpoints, probeIndex, calls.length);
     const firstAllowanceSetIndex = firstInBatchAllowanceSetIndex(calls, owner, probe);
     const limit = firstAllowanceSetIndex ?? calls.length;
     let amount = 0n;
     for (let callIndex = 0; callIndex < limit; ++callIndex) {
-      const before = checkpoints[probeIndex * stride + callIndex] ?? 0n;
-      const after = checkpoints[probeIndex * stride + callIndex + 1] ?? 0n;
+      const before = row[callIndex] ?? 0n;
+      const after = row[callIndex + 1] ?? 0n;
       if (before > after) amount += before - after;
     }
     if (amount > tokenOutflow(probe.token, candidates, maxTokenOutflows)) {

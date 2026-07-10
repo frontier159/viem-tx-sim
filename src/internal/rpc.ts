@@ -11,6 +11,8 @@ import { numberToHex } from "viem";
 
 import { AccessListUnsupportedError } from "../errors.js";
 import type { SimulationDebug, SimulationDebugEvent } from "../types.js";
+import { DEBUG_STEPS } from "./debugSteps.js";
+import type { DebugStep } from "./debugSteps.js";
 
 // Internal RPC layer: shared argument types, call-shaping helpers, then RPC wrappers.
 // Add new RPC methods here so debug and infrastructure-error behavior stays consistent.
@@ -60,8 +62,6 @@ export function buildCallParameters(
   ) satisfies CallParameters;
 }
 
-export type AccessListEntry = AccessList[number];
-
 type AccessListRpcRequest = {
   from: Address;
   to: Address;
@@ -82,7 +82,7 @@ export async function createAccessList(
     to: Address;
     data: Hex;
     value?: bigint;
-    debugStep?: string;
+    debugStep?: DebugStep;
   },
 ): Promise<AccessList> {
   const request = {
@@ -100,7 +100,7 @@ export async function createAccessList(
       args.debug,
       {
         method: "eth_createAccessList",
-        step: args.debugStep ?? "createAccessList",
+        step: args.debugStep ?? DEBUG_STEPS.createAccessList,
         details: {
           from: args.from,
           to: args.to,
@@ -124,14 +124,25 @@ export function formatRpcError(prefix: string, cause: unknown): string {
   return prefix;
 }
 
+// Classifies an execution revert on structured signals, not exact provider prose: JSON-RPC error
+// code 3 (geth-family's `execution reverted` code, preserved by viem on the cause chain) or a
+// message containing "revert". Providers word reverts differently, so match the signal, not the text.
+function hasRevertCode(cause: unknown): boolean {
+  for (let c = cause; typeof c === "object" && c !== null; c = (c as { cause?: unknown }).cause) {
+    if ((c as { code?: unknown }).code === 3) return true;
+  }
+  return false;
+}
+
 function isExecutionRevert(cause: unknown): boolean {
-  if (!(cause instanceof Error)) return false;
-  return /execution reverted|Execution reverted/i.test(cause.message);
+  if (hasRevertCode(cause)) return true;
+  return cause instanceof Error && /revert/i.test(cause.message);
 }
 
 function isRpcExecutionRevert(error: AccessListRpcResult["error"]): boolean {
+  if (hasRevertCode(error)) return true;
   const message = typeof error === "string" ? error : error?.message;
-  return message !== undefined && /execution reverted|Execution reverted/i.test(message);
+  return message !== undefined && /revert/i.test(message);
 }
 
 async function requestAccessList(
@@ -149,7 +160,7 @@ async function requestAccessList(
   });
 }
 
-export function emitDebug(debug: SimulationDebug | undefined, event: SimulationDebugEvent): void {
+function emitDebug(debug: SimulationDebug | undefined, event: SimulationDebugEvent): void {
   if (typeof debug === "function") {
     debug(event);
     return;
@@ -186,7 +197,7 @@ export async function withRpcDebug<T>(
 function envDebugEnabled(): boolean {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
     ?.env;
-  return env?.VIEM_TX_SIM_DEBUG_RPC === "1" || env?.DEBUG_RPC === "1";
+  return env?.VIEM_TX_SIM_DEBUG_RPC === "1";
 }
 
 function formatDebugEvent(event: SimulationDebugEvent): string {

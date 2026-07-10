@@ -30,7 +30,7 @@ importers:
         specifier: ^1.72.0
         version: 1.72.0
       typescript:
-        specifier: ^5.5.4
+        specifier: ^5.9.0
         version: 5.9.3
       viem:
         specifier: ^2.54.1

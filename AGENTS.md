@@ -9,21 +9,21 @@ Its core trick is injecting a never-deployed ghost contract at the user's own ad
 
 The library uses `viem` as its only runtime dependency and ships as an ESM package.
 Root modules expose the public API and shared types/errors/constants; internal modules may import those shared root modules, while public implementation modules may import internal helpers.
-Candidate discovery runs `eth_createAccessList` for each call; touched addresses become candidate assets without token lists, indexers, traces, or centralized simulation APIs.
-Simulation then performs one `eth_call` with state overrides that place `TxSimulator` bytecode at `from`.
-Because the simulator runs at `from`, `address(this)` is the user address, token balance reads target the real account, and calls execute with `msg.sender == from`.
+`simulate()` takes explicit `balanceQueries` and performs one `eth_call` with state overrides that place `TxSimulator` bytecode at `from`; it must not run access-list discovery.
+`balanceQueries.forUser()` is the wallet-style discovery helper: it runs `eth_createAccessList` for each call, filters touched addresses with one simulator call, then returns native + token queries for `from`; `balanceQueries.discoverErc20s()` exposes just the filtered token list.
+Because the simulator runs at `from`, `address(this)` is the user address, queried token balance reads can target any account, and calls execute with `msg.sender == from`.
 Batch calls execute sequentially inside one EVM context, so state changes from earlier calls are visible to later calls.
 
 Foundry compiles `contracts/TxSimulator.sol`.
 `scripts/generate-txsim-bytecode.mjs` extracts the runtime bytecode and writes `src/generated/txSimulatorBytecode.ts`.
 Never hand-edit files under `src/generated/`; regenerate them with `pnpm build:contracts`.
-`dist/` is committed and is part of the published package output.
+`dist/` is gitignored and rebuilt at publish time (`prepublishOnly` runs the TS build); it is part of the published package output.
 
 Override preparation is explicit.
 Balance and allowance overrides are prepared by access-list probing `balanceOf` / `allowance` data, then verifying a sentinel state override.
 The sentinel is `OVERRIDE_TOKEN_AMOUNT` (`10^50`), deliberately not `uint256.max`, because allowance decrements must still fire for standard ERC-20 implementations.
 
-`estimateAssetRequirements()` runs a recon simulation, prepares balance and allowance overrides, then runs a forged measurement simulation.
+`tokenOverrides.estimateRequirements()` runs access-list candidate discovery, a recon simulation, prepares balance and allowance overrides, then runs a forged measurement simulation.
 Allowance probes are recorded as flattened checkpoints with stride `calls.length + 1`, row-major per probe.
 Gross token/native outflows are measured from per-call minimum balances, not final net deltas.
 Allowance base-slot inference lives in `src/internal/slots.ts`; non-standard layouts fall back to probing.
@@ -38,16 +38,19 @@ Allowance base-slot inference lives in `src/internal/slots.ts`; non-standard lay
 - `src/internal/data.ts`: address normalization and hex/calldata helpers.
 - `src/internal/rpc.ts`: RPC wrappers, debug/error normalization, block/call parameter helpers.
 - `src/internal/simulator.ts`: candidate discovery, state-override simulator execution, revert decoding.
+- `src/internal/queryDiscovery.ts`: wallet-style balance query discovery.
 - `src/internal/probes.ts`: balance/allowance reads and access-list-plus-sentinel slot verification.
 - `src/internal/slots.ts`: balance/allowance override preparation, allowance layout inference, mapping slot math.
 - `src/internal/requirements.ts`: optional asset-requirement estimation over forged state.
+- `src/internal/checkpoints.ts`: checkpoint-grid layout; the only TypeScript home of the probe-row stride math and balance-delta reconstruction.
+- `src/internal/debugSteps.ts`: the typed debug-step vocabulary every emit site imports (tests pin the names as literals per ADR-0001).
 - `contracts/TxSimulator.sol`: ghost contract executed only through `eth_call` state overrides.
 
 ## Invariants tests pin
 
 Tests pin exact RPC call counts through debug events; refactors must not add hidden RPC calls.
 Tests pin exact balance deltas, estimated requirement amounts, and reverted-call reporting.
-Checkpoint math depends on `allowanceCheckpoints[probeIndex * (calls.length + 1) + callIndex]`.
+Checkpoint math for allowance and balance probes depends on `checkpoints[probeIndex * (calls.length + 1) + callIndex]`.
 Candidate/result ordering must stay deterministic even when RPC calls are parallelized.
 The `10^50` sentinel must remain non-max so `transferFrom` allowance decreases are observable.
 Transaction reverts are returned as result status; infrastructure failures throw typed errors.

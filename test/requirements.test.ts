@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { encodeFunctionData, getAddress, parseEther, zeroHash, type Abi, type Address } from "viem";
+import { encodeFunctionData, getAddress, parseAbi, parseEther, zeroHash } from "viem";
 
 import { TxSimulator, type SimulationDebugEvent } from "../src/index.js";
-import { artifact } from "./helpers/artifacts.js";
+import { deploy, write } from "./helpers/contracts.js";
 import { type AnvilTestContext, startAnvil } from "./helpers/anvil.js";
 
 describe("tokenOverrides.estimateRequirements", () => {
@@ -19,8 +19,8 @@ describe("tokenOverrides.estimateRequirements", () => {
   });
 
   it("measures vault balance and allowance requirements", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const vault = await deploy("TokenVault.sol", "TokenVault", [token.address]);
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const vault = await deploy(ctx, "TokenVault.sol", "TokenVault", [token.address]);
     const data = encodeFunctionData({
       abi: vault.abi,
       functionName: "deposit",
@@ -47,9 +47,9 @@ describe("tokenOverrides.estimateRequirements", () => {
   });
 
   it("attributes one token pulled by two spenders exactly", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const spenderA = await deploy("Spender.sol", "Spender");
-    const spenderB = await deploy("Spender.sol", "Spender");
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spenderA = await deploy(ctx, "Spender.sol", "Spender");
+    const spenderB = await deploy(ctx, "Spender.sol", "Spender");
     const pullA = encodeFunctionData({
       abi: spenderA.abi,
       functionName: "pull",
@@ -80,8 +80,8 @@ describe("tokenOverrides.estimateRequirements", () => {
   });
 
   it("uses gross token outflow instead of net delta", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const spender = await deploy("RefundingSpender.sol", "RefundingSpender");
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy(ctx, "RefundingSpender.sol", "RefundingSpender");
     const pull = encodeFunctionData({
       abi: spender.abi,
       functionName: "pull",
@@ -105,8 +105,8 @@ describe("tokenOverrides.estimateRequirements", () => {
   });
 
   it("does not require allowance when the batch approves before pulling", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const spender = await deploy("Spender.sol", "Spender");
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy(ctx, "Spender.sol", "Spender");
     const approve = encodeFunctionData({
       abi: token.abi,
       functionName: "approve",
@@ -135,9 +135,9 @@ describe("tokenOverrides.estimateRequirements", () => {
   });
 
   it("does not require allowance when the batch permits before pulling", async () => {
-    const token = await deploy("PermitToken.sol", "PermitToken", ["Token", "TKN", 18]);
-    const spender = await deploy("Spender.sol", "Spender");
-    await write(token, "mint", [ctx.account.address, 1_000n]);
+    const token = await deploy(ctx, "PermitToken.sol", "PermitToken", ["Token", "TKN", 18]);
+    const spender = await deploy(ctx, "Spender.sol", "Spender");
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
     const permit = encodeFunctionData({
       abi: token.abi,
       functionName: "permit",
@@ -167,10 +167,10 @@ describe("tokenOverrides.estimateRequirements", () => {
   });
 
   it("discards relayed allowance overwrites above gross outflow", async () => {
-    const token = await deploy("PermitToken.sol", "PermitToken", ["Token", "TKN", 18]);
-    const relayer = await deploy("PermitRelayer.sol", "PermitRelayer");
-    const spender = await deploy("Spender.sol", "Spender");
-    await write(token, "mint", [ctx.account.address, 1_000n]);
+    const token = await deploy(ctx, "PermitToken.sol", "PermitToken", ["Token", "TKN", 18]);
+    const relayer = await deploy(ctx, "PermitRelayer.sol", "PermitRelayer");
+    const spender = await deploy(ctx, "Spender.sol", "Spender");
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
     const relay = encodeFunctionData({
       abi: relayer.abi,
       functionName: "relay",
@@ -202,10 +202,10 @@ describe("tokenOverrides.estimateRequirements", () => {
   });
 
   it("measures the executed prefix when a batch reverts mid-way", async () => {
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const spender = await deploy("Spender.sol", "Spender");
-    const reverter = await deploy("RevertingTarget.sol", "RevertingTarget");
-    await write(token, "mint", [ctx.account.address, 1_000n]);
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy(ctx, "Spender.sol", "Spender");
+    const reverter = await deploy(ctx, "RevertingTarget.sol", "RevertingTarget");
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
     const pull = encodeFunctionData({
       abi: spender.abi,
       functionName: "pull",
@@ -230,11 +230,32 @@ describe("tokenOverrides.estimateRequirements", () => {
     });
   });
 
+  it("decodes custom-error revert fields on a reverting estimate with errorAbi", async () => {
+    const target = await deploy(ctx, "CustomErrorTarget.sol", "CustomErrorTarget");
+    const data = encodeFunctionData({
+      abi: target.abi,
+      functionName: "failWithArgs",
+      args: [1n, 2n],
+    });
+
+    const requirements = await sim.tokenOverrides.estimateRequirements({
+      from: ctx.account.address,
+      calls: [{ to: target.address, data }],
+      errorAbi: parseAbi(["error InsufficientBalance(uint256 have, uint256 want)"]),
+    });
+
+    if (requirements.status !== "reverted") throw new Error("expected reverted requirements");
+    expect(requirements.failingCallIndex).toBe(0);
+    expect(requirements.revertError).toEqual({ name: "InsufficientBalance", args: [1n, 2n] });
+    expect(requirements.revertReason).toBe("InsufficientBalance(1, 2)");
+    expect(requirements.revertSelector).toBeDefined();
+  });
+
   it("infers standard allowance slots after one probe", async () => {
     const events: SimulationDebugEvent[] = [];
-    const token = await deploy("TestToken.sol", "TestToken", ["Token", "TKN", 18]);
-    const spenderA = await deploy("Spender.sol", "Spender");
-    const spenderB = await deploy("Spender.sol", "Spender");
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spenderA = await deploy(ctx, "Spender.sol", "Spender");
+    const spenderB = await deploy(ctx, "Spender.sol", "Spender");
     const pullA = encodeFunctionData({
       abi: spenderA.abi,
       functionName: "pull",
@@ -265,9 +286,9 @@ describe("tokenOverrides.estimateRequirements", () => {
 
   it("falls back for non-standard allowance slots", async () => {
     const events: SimulationDebugEvent[] = [];
-    const token = await deploy("NonStandardSlotToken.sol", "NonStandardSlotToken");
-    const spenderA = await deploy("Spender.sol", "Spender");
-    const spenderB = await deploy("Spender.sol", "Spender");
+    const token = await deploy(ctx, "NonStandardSlotToken.sol", "NonStandardSlotToken");
+    const spenderA = await deploy(ctx, "Spender.sol", "Spender");
+    const spenderB = await deploy(ctx, "Spender.sol", "Spender");
     const pullA = encodeFunctionData({
       abi: spenderA.abi,
       functionName: "pull",
@@ -330,32 +351,4 @@ describe("tokenOverrides.estimateRequirements", () => {
     expect(requirements.status).toBe("success");
     expect(requirements.native).toBe(value);
   });
-
-  async function deploy(contractFile: string, contractName: string, args: readonly unknown[] = []) {
-    const contract = artifact(contractFile, contractName);
-    const hash = await ctx.walletClient.deployContract({
-      abi: contract.abi,
-      bytecode: contract.bytecode,
-      args,
-    });
-    const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash });
-    return {
-      abi: contract.abi,
-      address: getAddress(receipt.contractAddress!),
-    };
-  }
-
-  async function write(
-    contract: { abi: Abi; address: Address },
-    functionName: string,
-    args: readonly unknown[] = [],
-  ) {
-    const hash = await ctx.walletClient.writeContract({
-      address: contract.address,
-      abi: contract.abi,
-      functionName,
-      args,
-    });
-    await ctx.publicClient.waitForTransactionReceipt({ hash });
-  }
 });

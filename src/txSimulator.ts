@@ -2,13 +2,13 @@ import type { Address } from "viem";
 
 import { DEFAULT_SIMULATION_GAS_LIMIT } from "./constants.js";
 import { InvalidSimulationInputError } from "./errors.js";
+import { buildBalanceResults } from "./internal/checkpoints.js";
 import { discoverErc20s, forUserBalanceQueries } from "./internal/queryDiscovery.js";
-import { estimateTokenOverrideRequirements } from "./internal/requirements.js";
+import { estimateAssetRequirements } from "./internal/requirements.js";
 import { blockOptionsSpread, type ClientArgs } from "./internal/rpc.js";
 import { runSimulator } from "./internal/simulator.js";
-import { prepareAllowanceTokenOverrides, prepareBalanceTokenOverrides } from "./internal/slots.js";
+import { prepareAllowanceOverrides, prepareBalanceOverrides } from "./internal/slots.js";
 import type {
-  BalanceDelta,
   BalanceQuery,
   ForUserBalanceQueriesArgs,
   PreparedAllowanceOverrides,
@@ -168,11 +168,11 @@ export const TxSimulator = {
       },
       tokenOverrides: {
         forBalances: (args) =>
-          prepareBalanceTokenOverrides({ ...args, ...defaults(args), client: bound.client }),
+          prepareBalanceOverrides({ ...args, ...defaults(args), client: bound.client }),
         forAllowances: (args) =>
-          prepareAllowanceTokenOverrides({ ...args, ...defaults(args), client: bound.client }),
+          prepareAllowanceOverrides({ ...args, ...defaults(args), client: bound.client }),
         estimateRequirements: (args) =>
-          estimateTokenOverrideRequirements({
+          estimateAssetRequirements({
             ...args,
             ...revertDefaults(args),
             client: bound.client,
@@ -228,50 +228,4 @@ async function runSimulate(args: SimulateArgs & ClientArgs): Promise<SimulationR
   }
 
   return { status: "success", ...balances };
-}
-
-type BalanceResultFields = {
-  balanceDeltas: BalanceDelta[];
-  unresolved: BalanceQuery[];
-};
-
-function buildBalanceResults(
-  queries: readonly BalanceQuery[],
-  probeData: {
-    balanceCheckpoints: readonly bigint[];
-    balanceProbeOk: readonly boolean[];
-  },
-  callsLength: number,
-): BalanceResultFields {
-  const balanceDeltas: BalanceDelta[] = [];
-  const unresolved: BalanceQuery[] = [];
-  const stride = callsLength + 1;
-
-  for (let i = 0; i < queries.length; ++i) {
-    const query = queries[i];
-    if (query === undefined) continue;
-    if (probeData.balanceProbeOk[i] !== true) {
-      unresolved.push(query);
-      continue;
-    }
-    const base = i * stride;
-    const before = probeData.balanceCheckpoints[base] ?? 0n;
-    const after = probeData.balanceCheckpoints[base + callsLength] ?? 0n;
-    const byCall = Array.from(
-      { length: callsLength },
-      (_, callIndex) =>
-        (probeData.balanceCheckpoints[base + callIndex + 1] ?? 0n) -
-        (probeData.balanceCheckpoints[base + callIndex] ?? 0n),
-    );
-    balanceDeltas.push({
-      asset: query.asset,
-      account: query.account,
-      before,
-      after,
-      delta: after - before,
-      byCall,
-    });
-  }
-
-  return { balanceDeltas, unresolved };
 }
