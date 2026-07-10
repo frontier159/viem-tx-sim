@@ -3,6 +3,7 @@ import type { Address } from "viem";
 import type { BalanceQuery, ForUserBalanceQueriesArgs, SimulatedCall } from "../types.js";
 import type { ClientArgs } from "./rpc.js";
 import { blockOptionsSpread } from "./rpc.js";
+import { DEBUG_STEPS } from "./debugSteps.js";
 import { discoverCandidateAddresses, runSimulator } from "./simulator.js";
 
 /** @internal Implements {@link TxSimulator.balanceQueries.forUser}. Prefer the instance API from the package root. */
@@ -40,7 +41,7 @@ export async function discoverErc20s(
     calls: [],
     candidates,
     debug: args.debug,
-    debugStep: "balanceQueries.tokenFilter",
+    debugStep: DEBUG_STEPS.balanceQueriesTokenFilter,
     gas: args.gas,
     ...blockOptionsSpread(args),
   });

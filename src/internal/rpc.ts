@@ -11,6 +11,8 @@ import { numberToHex } from "viem";
 
 import { AccessListUnsupportedError } from "../errors.js";
 import type { SimulationDebug, SimulationDebugEvent } from "../types.js";
+import { DEBUG_STEPS } from "./debugSteps.js";
+import type { DebugStep } from "./debugSteps.js";
 
 // Internal RPC layer: shared argument types, call-shaping helpers, then RPC wrappers.
 // Add new RPC methods here so debug and infrastructure-error behavior stays consistent.
@@ -82,7 +84,7 @@ export async function createAccessList(
     to: Address;
     data: Hex;
     value?: bigint;
-    debugStep?: string;
+    debugStep?: DebugStep;
   },
 ): Promise<AccessList> {
   const request = {
@@ -100,7 +102,7 @@ export async function createAccessList(
       args.debug,
       {
         method: "eth_createAccessList",
-        step: args.debugStep ?? "createAccessList",
+        step: args.debugStep ?? DEBUG_STEPS.createAccessList,
         details: {
           from: args.from,
           to: args.to,
@@ -186,7 +188,7 @@ export async function withRpcDebug<T>(
 function envDebugEnabled(): boolean {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
     ?.env;
-  return env?.VIEM_TX_SIM_DEBUG_RPC === "1" || env?.DEBUG_RPC === "1";
+  return env?.VIEM_TX_SIM_DEBUG_RPC === "1";
 }
 
 function formatDebugEvent(event: SimulationDebugEvent): string {

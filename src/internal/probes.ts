@@ -2,6 +2,8 @@ import type { Address, Hex, StateOverride } from "viem";
 import { encodeFunctionData, erc20Abi } from "viem";
 
 import { addressKey } from "./data.js";
+import { DEBUG_STEPS } from "./debugSteps.js";
+import type { DebugStep } from "./debugSteps.js";
 import { withRpcDebug } from "./rpc.js";
 import { getCallData, uint256Hex } from "./data.js";
 import type { RpcCallArgs } from "./rpc.js";
@@ -22,7 +24,7 @@ export async function readAllowance(
     owner: Address;
     spender: Address;
     stateOverride?: StateOverride;
-    debugStep?: string;
+    debugStep?: DebugStep;
   },
 ): Promise<bigint | undefined> {
   const data = encodeFunctionData({
@@ -39,7 +41,7 @@ export async function readAllowance(
     stateOverride: args.stateOverride,
     gas: args.gas,
     debug: args.debug,
-    debugStep: args.debugStep ?? "erc20.allowance",
+    debugStep: args.debugStep ?? DEBUG_STEPS.erc20Allowance,
     ...blockOptionsSpread(args),
   });
 }
@@ -50,7 +52,7 @@ async function discoverSlot(
     owner: Address;
     data: Hex;
     sentinel: bigint;
-    stepPrefix: "balanceSlot" | "allowanceSlot";
+    steps: { accessList: DebugStep; verify: DebugStep };
   },
 ): Promise<Hex | undefined> {
   let storageKeys: Hex[];
@@ -62,7 +64,7 @@ async function discoverSlot(
       data: args.data,
       gas: args.gas,
       debug: args.debug,
-      debugStep: `${args.stepPrefix}.accessList`,
+      debugStep: args.steps.accessList,
       ...blockOptionsSpread(args),
     });
     storageKeys = accessList
@@ -82,7 +84,7 @@ async function discoverSlot(
       stateOverride: [{ address: args.token, stateDiff: [{ slot, value: sentinelHex }] }],
       gas: args.gas,
       debug: args.debug,
-      debugStep: `${args.stepPrefix}.verify`,
+      debugStep: args.steps.verify,
       ...blockOptionsSpread(args),
     });
     if (value === args.sentinel) return slot;
@@ -104,7 +106,11 @@ export async function discoverBalanceSlot(
     args: [args.owner],
   });
 
-  const slot = await discoverSlot({ ...args, data, stepPrefix: "balanceSlot" });
+  const slot = await discoverSlot({
+    ...args,
+    data,
+    steps: { accessList: DEBUG_STEPS.balanceSlotAccessList, verify: DEBUG_STEPS.balanceSlotVerify },
+  });
   return slot === undefined ? undefined : { token: args.token, slot };
 }
 
@@ -122,7 +128,14 @@ export async function discoverAllowanceSlot(
     args: [args.owner, args.spender],
   });
 
-  const slot = await discoverSlot({ ...args, data, stepPrefix: "allowanceSlot" });
+  const slot = await discoverSlot({
+    ...args,
+    data,
+    steps: {
+      accessList: DEBUG_STEPS.allowanceSlotAccessList,
+      verify: DEBUG_STEPS.allowanceSlotVerify,
+    },
+  });
   return slot === undefined ? undefined : { token: args.token, spender: args.spender, slot };
 }
 
@@ -132,7 +145,7 @@ async function readUint256Call(
     to: Address;
     data: Hex;
     stateOverride?: StateOverride;
-    debugStep: string;
+    debugStep: DebugStep;
   },
 ): Promise<bigint | undefined> {
   try {

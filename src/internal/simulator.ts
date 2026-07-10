@@ -12,6 +12,8 @@ import {
 import type { RevertError, SimulatedCall, TokenSlotOverride } from "../types.js";
 import { InvalidSimulationInputError, StateOverrideUnsupportedError } from "../errors.js";
 import { txSimulatorRuntimeBytecode } from "../generated/txSimulatorBytecode.js";
+import { DEBUG_STEPS } from "./debugSteps.js";
+import type { DebugStep } from "./debugSteps.js";
 import {
   MAX_UINT256,
   addressKey,
@@ -72,7 +74,7 @@ export async function runSimulator(
     extraStateOverrides?: readonly StateOverrideEntry[];
     allowanceProbes?: readonly { token: Address; spender: Address }[];
     balanceProbes?: readonly { token: Address | "native"; account: Address }[];
-    debugStep?: string;
+    debugStep?: DebugStep;
     errorAbi?: Abi;
   },
 ): Promise<SimulatorResult> {
@@ -108,7 +110,7 @@ export async function runSimulator(
       args.debug,
       {
         method: "eth_call",
-        step: args.debugStep ?? "txSimulator.simulate",
+        step: args.debugStep ?? DEBUG_STEPS.txSimulatorSimulate,
         details: {
           from: args.from,
           calls: args.calls.length,
@@ -201,7 +203,7 @@ export async function discoverCandidateAddresses(
         value: call.value ?? 0n,
         gas: args.gas,
         debug: args.debug,
-        debugStep: "candidateDiscovery.accessList",
+        debugStep: DEBUG_STEPS.candidateDiscoveryAccessList,
         ...blockOptionsSpread(args),
       }),
     ),

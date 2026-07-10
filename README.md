@@ -200,6 +200,8 @@ const result = await sim.simulate({
 
 ## Debugging
 
+Set `VIEM_TX_SIM_DEBUG_RPC=1` to log RPC debug events to the console without touching call sites.
+
 Enable logging per simulation call:
 
 ```ts
