@@ -76,7 +76,17 @@ Foundry nightly is expected because local access-list-on-revert behavior must ma
 ## Releasing
 
 Every behavior-changing PR should include a changeset (`pnpm changeset`).
-The changesets release workflow maintains the Version Packages PR; merging that PR publishes to npm with provenance through Trusted Publishing.
+The release is two-phase and human-gated:
+
+1. Pushing changesets to `master` makes `release.yml`'s `version-pr` job open/update the **Version Packages** bot PR.
+2. Merging that PR triggers the `publish` job, which runs under the `npm-publish` GitHub Environment: it parks in **Waiting** until a required reviewer approves it (Actions → run page → "Review deployments" → Approve). On approval it runs `pnpm release` and publishes to npm with provenance through OIDC Trusted Publishing.
+
+Ordinary (non-version) master pushes never prompt: the `detect` job compares the local `package.json` version against the published one and skips `publish` when they match.
+
+`release.yml`'s foundry nightly, node pin, and action SHA pins stay in lockstep with `ci.yml`.
+
+Do NOT enable branch protection's "require review from Code Owners" while the repo has a single maintainer — GitHub forbids authors approving their own PRs, so the sole owner would block their own workflow changes. Enable it the day a second maintainer has merge rights.
+
 This package is pre-1.0, so minor versions may include breaking changes until 1.0.0.
 
 ## Plans workflow
