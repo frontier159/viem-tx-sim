@@ -83,8 +83,14 @@ describe("TxSimulator", () => {
     expect(events.some((event) => event.step === "txSimulator.simulate")).toBe(true);
   });
 
-  it("is structurally mockable", () => {
-    expect(fake).toBeDefined();
+  it("is structurally mockable", async () => {
+    await expect(
+      fake.simulate({
+        from: "0x0000000000000000000000000000000000000abc",
+        calls: [{ to: "0x0000000000000000000000000000000000000def", data: "0x" }],
+        balanceQueries: [],
+      }),
+    ).resolves.toEqual({ status: "success", balanceDeltas: [], unresolved: [] });
   });
 });
 

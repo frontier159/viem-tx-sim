@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { encodeErrorResult, getAddress, parseAbi, type Hex } from "viem";
 
 import {
@@ -221,5 +221,53 @@ describe("error handling", () => {
     if (result.status !== "reverted") throw new Error("expected reverted simulation");
     expect(result.revertReason).toBe("Panic(17)");
     expect(result.revertError).toEqual({ name: "Panic", args: [17n] });
+  });
+
+  it("logs to console.debug when debug is true", async () => {
+    const sim = simulatorFor({ eth_call: () => encodeSimulationResult() });
+    const spy = vi.spyOn(console, "debug").mockImplementation(() => {});
+
+    let logged: string;
+    try {
+      await sim.simulate({ from, calls: [{ to, data: "0x" }], balanceQueries: [], debug: true });
+      logged = spy.mock.calls.map((args) => args.join(" ")).join("\n");
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(logged).toContain("[viem-tx-sim]");
+    expect(logged).toContain("txSimulator.simulate");
+  });
+
+  it("logs to console.debug when VIEM_TX_SIM_DEBUG_RPC is set", async () => {
+    const sim = simulatorFor({ eth_call: () => encodeSimulationResult() });
+    const spy = vi.spyOn(console, "debug").mockImplementation(() => {});
+
+    let logged: string;
+    try {
+      process.env.VIEM_TX_SIM_DEBUG_RPC = "1";
+      await sim.simulate({ from, calls: [{ to, data: "0x" }], balanceQueries: [] });
+      logged = spy.mock.calls.map((args) => args.join(" ")).join("\n");
+    } finally {
+      delete process.env.VIEM_TX_SIM_DEBUG_RPC;
+      spy.mockRestore();
+    }
+
+    expect(logged).toContain("txSimulator.simulate");
+  });
+
+  it("reports a selector-less revert with undefined decode fields", async () => {
+    const sim = simulatorFor({
+      eth_call: () =>
+        encodeSimulationResult({ success: false, failingCallIndex: 0n, revertData: "0x" }),
+    });
+
+    const result = await sim.simulate({ from, calls: [{ to, data: "0x" }], balanceQueries: [] });
+    if (result.status !== "reverted") throw new Error("expected reverted simulation");
+    expect(result.revertData).toBe("0x");
+    expect(result.revertSelector).toBeUndefined();
+    expect(result.revertReason).toBeUndefined();
+    expect(result.revertError).toBeUndefined();
+    expect(result.failingCallIndex).toBe(0);
   });
 });

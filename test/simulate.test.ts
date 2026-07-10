@@ -973,6 +973,30 @@ describe("viem-tx-sim", () => {
     ]);
   });
 
+  it("reads state and executes at a pinned historical block", async () => {
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
+    const pinned = await ctx.publicClient.getBlockNumber();
+    await write(ctx, token, "mint", [ctx.account.address, 500n]);
+
+    const data = encodeFunctionData({
+      abi: token.abi,
+      functionName: "transfer",
+      args: [ctx.secondAccount.address, 1n],
+    });
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: token.address, data }],
+      balanceQueries: [{ asset: token.address, account: ctx.account.address }],
+      blockNumber: pinned,
+    });
+
+    expect(result.status).toBe("success");
+    // `before` = the pre-second-mint balance, proving blockNumber threaded through
+    // both the state read and the call (latest would show 1_500n).
+    expect(balanceDelta(result, token.address)).toMatchObject({ before: 1_000n, delta: -1n });
+  });
+
   function tokenQueries(asset: Address, account = ctx.account.address): BalanceQuery[] {
     return [{ asset, account }];
   }

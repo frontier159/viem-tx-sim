@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { encodeFunctionData, getAddress, parseEther, zeroHash } from "viem";
+import { encodeFunctionData, getAddress, parseAbi, parseEther, zeroHash } from "viem";
 
 import { TxSimulator, type SimulationDebugEvent } from "../src/index.js";
 import { deploy, write } from "./helpers/contracts.js";
@@ -228,6 +228,27 @@ describe("tokenOverrides.estimateRequirements", () => {
       spender: spender.address,
       amount: 100n,
     });
+  });
+
+  it("decodes custom-error revert fields on a reverting estimate with errorAbi", async () => {
+    const target = await deploy(ctx, "CustomErrorTarget.sol", "CustomErrorTarget");
+    const data = encodeFunctionData({
+      abi: target.abi,
+      functionName: "failWithArgs",
+      args: [1n, 2n],
+    });
+
+    const requirements = await sim.tokenOverrides.estimateRequirements({
+      from: ctx.account.address,
+      calls: [{ to: target.address, data }],
+      errorAbi: parseAbi(["error InsufficientBalance(uint256 have, uint256 want)"]),
+    });
+
+    if (requirements.status !== "reverted") throw new Error("expected reverted requirements");
+    expect(requirements.failingCallIndex).toBe(0);
+    expect(requirements.revertError).toEqual({ name: "InsufficientBalance", args: [1n, 2n] });
+    expect(requirements.revertReason).toBe("InsufficientBalance(1, 2)");
+    expect(requirements.revertSelector).toBeDefined();
   });
 
   it("infers standard allowance slots after one probe", async () => {
