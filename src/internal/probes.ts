@@ -24,7 +24,7 @@ export async function readAllowance(
     owner: Address;
     spender: Address;
     stateOverride?: StateOverride;
-    debugStep?: DebugStep;
+    debugStep: DebugStep;
   },
 ): Promise<bigint | undefined> {
   const data = encodeFunctionData({
@@ -41,7 +41,7 @@ export async function readAllowance(
     stateOverride: args.stateOverride,
     gas: args.gas,
     debug: args.debug,
-    debugStep: args.debugStep ?? DEBUG_STEPS.erc20Allowance,
+    debugStep: args.debugStep,
     ...blockOptionsSpread(args),
   });
 }

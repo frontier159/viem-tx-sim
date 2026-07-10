@@ -2,10 +2,11 @@ import {
   createPublicClient,
   custom,
   encodeFunctionResult,
-  parseAbi,
   type Hex,
   type PublicClient,
 } from "viem";
+
+import { txSimulatorAbi } from "../../src/internal/simulator.js";
 
 /**
  * A real viem `PublicClient` over a `custom` transport with scripted per-RPC-method responders, so
@@ -28,16 +29,6 @@ export function fakeClient(responders: Record<string, (params: unknown) => unkno
     }),
   });
 }
-
-// Mirror of the ghost contract's return ABI (src/internal/simulator.ts) so tests can script the
-// `eth_call` result the way a real node would encode it.
-const simulatorAbi = parseAbi([
-  "struct SimulatedCall { address to; uint256 value; bytes data; }",
-  "struct AllowanceProbe { address token; address spender; }",
-  "struct BalanceProbe { address token; address account; }",
-  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; address[] observedTokens; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; uint256[] balanceCheckpoints; bool[] balanceProbeOk; }",
-  "function simulate(SimulatedCall[] calls, address[] candidates, AllowanceProbe[] probes, BalanceProbe[] balanceProbes) returns (SimulationResult)",
-]);
 
 type SimulationResultStruct = {
   success: boolean;
@@ -65,5 +56,5 @@ export function encodeSimulationResult(overrides: Partial<SimulationResultStruct
     balanceProbeOk: [],
     ...overrides,
   };
-  return encodeFunctionResult({ abi: simulatorAbi, functionName: "simulate", result });
+  return encodeFunctionResult({ abi: txSimulatorAbi, functionName: "simulate", result });
 }

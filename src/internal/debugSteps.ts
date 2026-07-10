@@ -6,7 +6,6 @@ export const DEBUG_STEPS = {
   txSimulatorSimulate: "txSimulator.simulate",
   candidateDiscoveryAccessList: "candidateDiscovery.accessList",
   createAccessList: "createAccessList",
-  erc20Allowance: "erc20.allowance",
   balanceQueriesTokenFilter: "balanceQueries.tokenFilter",
   balanceSlotAccessList: "balanceSlot.accessList",
   balanceSlotVerify: "balanceSlot.verify",

@@ -56,7 +56,8 @@ export type SimulatorResult =
       failingCallIndex: number;
     });
 
-const txSimulatorAbi = parseAbi([
+/** @internal Also imported by test helpers to encode node-shaped simulator returndata. */
+export const txSimulatorAbi = parseAbi([
   "struct SimulatedCall { address to; uint256 value; bytes data; }",
   "struct AllowanceProbe { address token; address spender; }",
   "struct BalanceProbe { address token; address account; }",
