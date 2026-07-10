@@ -5,3 +5,4 @@ out/
 .pnpm-store/
 *.tsbuildinfo
 .DS_Store
+.scratch/
