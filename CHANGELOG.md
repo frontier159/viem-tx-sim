@@ -1,5 +1,11 @@
 # viem-tx-sim
 
+## 0.2.3
+
+### Patch Changes
+
+- [#14](https://github.com/frontier159/viem-tx-sim/pull/14) [`bdd624f`](https://github.com/frontier159/viem-tx-sim/commit/bdd624f289631cb0fcf8f9c2d7c51d04fee0230e) Thanks [@frontier159](https://github.com/frontier159)! - Rewrite the README around a concise first-use path, add focused examples for discovery, batches, state overrides, reverts, and debugging, and update the package description.
+
 ## 0.2.2
 
 ### Patch Changes
