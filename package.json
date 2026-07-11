@@ -1,7 +1,7 @@
 {
   "name": "viem-tx-sim",
   "version": "0.2.2",
-  "description": "RPC-only transaction simulation helpers for viem applications.",
+  "description": "Preview transaction and batch balance changes with viem—no local fork or simulation API.",
   "keywords": [
     "eth_call",
     "ethereum",
