@@ -106,6 +106,7 @@ export interface TxSimulator {
      * simulator cannot `deal` by verified storage write are returned in `unresolved` rather than
      * thrown.
      *
+     * @throws AccessListUnsupportedError when the RPC endpoint cannot provide access lists.
      * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
      */
     forBalances: (args: PrepareBalanceOverridesArgs) => Promise<PreparedBalanceOverrides>;
@@ -117,6 +118,7 @@ export interface TxSimulator {
      * possible; non-standard layouts fall back to per-pair probing. Pairs the simulator cannot
      * `deal` via verified storage write are returned in `unresolved` rather than thrown.
      *
+     * @throws AccessListUnsupportedError when the RPC endpoint cannot provide access lists.
      * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
      */
     forAllowances: (args: PrepareAllowanceOverridesArgs) => Promise<PreparedAllowanceOverrides>;

@@ -21,9 +21,16 @@ import type {
 import { addressKey, getCallData, normalizeAddress, uint256Hex } from "./data.js";
 import { DEBUG_STEPS } from "./debugSteps.js";
 import type { DebugStep } from "./debugSteps.js";
+import { StateOverrideUnsupportedError } from "../errors.js";
 import { discoverAllowanceSlot, discoverBalanceSlot, readAllowance } from "./probes.js";
 import type { ClientArgs, RpcCallArgs } from "./rpc.js";
-import { blockOptionsSpread, buildCallParameters, withRpcDebug } from "./rpc.js";
+import {
+  blockOptionsSpread,
+  buildCallParameters,
+  formatRpcError,
+  isExecutionRevert,
+  withRpcDebug,
+} from "./rpc.js";
 
 type SlotFact = {
   token: Address;
@@ -361,8 +368,12 @@ async function readPermit2Allowance(
       data: getCallData(result),
     });
     return { amount: BigInt(amount), expiration: BigInt(expiration), nonce: BigInt(nonce) };
-  } catch {
-    return undefined;
+  } catch (cause) {
+    // A reverting read is a non-Permit2 target (unresolved); anything else is infrastructure.
+    if (isExecutionRevert(cause)) return undefined;
+    throw new StateOverrideUnsupportedError(
+      formatRpcError("eth_call during override preparation failed", cause),
+    );
   }
 }
 

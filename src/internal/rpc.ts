@@ -142,7 +142,7 @@ function hasRevertCode(cause: unknown): boolean {
   return false;
 }
 
-function isExecutionRevert(cause: unknown): boolean {
+export function isExecutionRevert(cause: unknown): boolean {
   if (hasRevertCode(cause)) return true;
   return cause instanceof Error && /revert/i.test(cause.message);
 }

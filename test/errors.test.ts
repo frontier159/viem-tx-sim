@@ -74,10 +74,56 @@ describe("error handling", () => {
     await expect(promise).rejects.toThrow(/undecodable/);
   });
 
-  it("omits balance slots when probing fails", async () => {
+  it("rejects forBalances with a typed error on an infrastructure access-list failure", async () => {
     const sim = simulatorFor({
       eth_createAccessList: () => {
-        throw new Error("eth_createAccessList unavailable");
+        throw new Error("connection refused");
+      },
+    });
+
+    await expect(sim.tokenOverrides.forBalances({ from, tokens: [token] })).rejects.toBeInstanceOf(
+      AccessListUnsupportedError,
+    );
+  });
+
+  it("rejects forBalances with a typed error when the sentinel-verify eth_call fails", async () => {
+    const slot = "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex;
+    const sim = simulatorFor({
+      eth_createAccessList: () => ({
+        accessList: [{ address: token, storageKeys: [slot] }],
+        gasUsed: "0x0",
+      }),
+      eth_call: () => {
+        throw new Error("connection refused");
+      },
+    });
+
+    await expect(sim.tokenOverrides.forBalances({ from, tokens: [token] })).rejects.toBeInstanceOf(
+      StateOverrideUnsupportedError,
+    );
+  });
+
+  it("rejects forPermit2Allowances with a typed error when the eth_call fails", async () => {
+    const sim = simulatorFor({
+      eth_call: () => {
+        throw new Error("connection refused");
+      },
+    });
+
+    await expect(
+      sim.tokenOverrides.forPermit2Allowances({ from, pairs: [{ token, spender: to }] }),
+    ).rejects.toBeInstanceOf(StateOverrideUnsupportedError);
+  });
+
+  it("treats a reverting balance-slot read as unresolved rather than throwing (control)", async () => {
+    const slot = "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex;
+    const sim = simulatorFor({
+      eth_createAccessList: () => ({
+        accessList: [{ address: token, storageKeys: [slot] }],
+        gasUsed: "0x0",
+      }),
+      eth_call: () => {
+        throw Object.assign(new Error("execution reverted"), { code: 3 });
       },
     });
 
