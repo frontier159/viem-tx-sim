@@ -15,6 +15,17 @@ export const DEFAULT_SIMULATION_GAS_LIMIT = 16_000_000n;
 export const OVERRIDE_TOKEN_AMOUNT = 10n ** 50n;
 
 /**
+ * Default forged Permit2 internal-allowance amount written into the packed allowance slot.
+ *
+ * Distinct from {@link OVERRIDE_TOKEN_AMOUNT} because Permit2 packs the amount into a `uint160`
+ * field, and `10^50` exceeds `2^160 - 1`. This value must satisfy two constraints: it must fit
+ * `uint160` (`10^45 < 2^160 - 1`), and it must stay below `type(uint160).max` so Permit2's amount
+ * decrement still fires (Permit2, like ERC-20, skips the decrement at exactly max), keeping forged
+ * pulls observable.
+ */
+export const OVERRIDE_PERMIT2_AMOUNT = 10n ** 45n;
+
+/**
  * Maximum gas attached to `eth_createAccessList` requests.
  *
  * Providers cap this method far below their `eth_call` cap (Alchemy mainnet rejects the default

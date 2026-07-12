@@ -120,6 +120,22 @@ export type PreparedAllowanceOverrides = {
   unresolved: AllowanceSlotPair[];
 };
 
+/**
+ * Prepared Permit2 internal-allowance overrides.
+ *
+ * WARNING: unlike ERC-20 overrides, each `slots[i].token` is the **Permit2 contract address** — the
+ * account whose storage is overridden — not the ERC-20. The ERC-20 for each override lives in the
+ * index-aligned `pairs[i].token`. Spread `slots` into `simulate({ tokenSlotOverrides })` unchanged.
+ */
+export type PreparedPermit2Overrides = {
+  /** Verified packed-slot overrides; `slots[i]` corresponds to `pairs[i]`. Its `token` is the Permit2 address. */
+  slots: TokenSlotOverride[];
+  /** Token/spender pairs that resolved, index-aligned with `slots`. */
+  pairs: AllowanceSlotPair[];
+  /** Pairs whose Permit2 allowance slot could not be sentinel-verified. */
+  unresolved: AllowanceSlotPair[];
+};
+
 /** ABI-decoded revert error, present when revertData matches supplied error definitions or a built-in Error/Panic. */
 export type RevertError = {
   name: string;
@@ -170,6 +186,16 @@ export type PrepareAllowanceOverridesArgs = SimulationOptions & {
   from: Address;
   /** Token/spender allowance pairs to prepare overrides for. */
   pairs: readonly AllowanceSlotPair[];
+};
+
+/** Arguments for `TxSimulator.tokenOverrides.forPermit2Allowances`. */
+export type ForPermit2AllowancesArgs = SimulationOptions & {
+  /** Owner account whose Permit2 internal allowances should be forged. */
+  from: Address;
+  /** Token/spender pairs to prepare Permit2 allowance overrides for. */
+  pairs: readonly AllowanceSlotPair[];
+  /** Permit2 singleton address; defaults to the canonical `0x0000...78BA3`. */
+  permit2Address?: Address;
 };
 
 /** Arguments for `TxSimulator.tokenOverrides.estimateRequirements`. */

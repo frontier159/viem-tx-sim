@@ -100,6 +100,7 @@ const fake: TxSimulator = {
   tokenOverrides: {
     forBalances: async () => ({ slots: [], unresolved: [] }),
     forAllowances: async () => ({ slots: [], unresolved: [] }),
+    forPermit2Allowances: async () => ({ slots: [], pairs: [], unresolved: [] }),
     estimateRequirements: async () => ({
       status: "success",
       native: 0n,

@@ -7,12 +7,18 @@ import { discoverErc20s, forUserBalanceQueries } from "./internal/queryDiscovery
 import { estimateAssetRequirements } from "./internal/requirements.js";
 import { blockOptionsSpread, type ClientArgs } from "./internal/rpc.js";
 import { runSimulator } from "./internal/simulator.js";
-import { prepareAllowanceOverrides, prepareBalanceOverrides } from "./internal/slots.js";
+import {
+  prepareAllowanceOverrides,
+  prepareBalanceOverrides,
+  preparePermit2Overrides,
+} from "./internal/slots.js";
 import type {
   BalanceQuery,
+  ForPermit2AllowancesArgs,
   ForUserBalanceQueriesArgs,
   PreparedAllowanceOverrides,
   PreparedBalanceOverrides,
+  PreparedPermit2Overrides,
   PrepareAllowanceOverridesArgs,
   PrepareBalanceOverridesArgs,
   EstimateAssetRequirementsArgs,
@@ -108,6 +114,21 @@ export interface TxSimulator {
     forAllowances: (args: PrepareAllowanceOverridesArgs) => Promise<PreparedAllowanceOverrides>;
 
     /**
+     * Prepares Permit2 internal-allowance overrides for `from` and the requested token/spender pairs.
+     *
+     * Permit2's allowance lives in a triple-nested `allowance(owner, token, spender)` mapping the
+     * ERC-20 `forAllowances` probing cannot reach. Each override is sentinel-verified, forges a
+     * generous amount and far-future expiration, and preserves the on-chain nonce so signed
+     * `permit()` calls still verify. Returned `slots[i].token` is the Permit2 address (the account
+     * whose storage is overridden), index-aligned with `pairs`; spread `slots` into
+     * `simulate({ tokenSlotOverrides })`. Pairs that cannot be verified are returned in `unresolved`
+     * rather than thrown.
+     *
+     * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
+     */
+    forPermit2Allowances: (args: ForPermit2AllowancesArgs) => Promise<PreparedPermit2Overrides>;
+
+    /**
      * Estimates the balances and approvals needed to execute the observed path.
      *
      * Use this when the tokens or spenders are not known ahead of time. Returned amounts are
@@ -171,6 +192,8 @@ export const TxSimulator = {
           prepareBalanceOverrides({ ...args, ...defaults(args), client: bound.client }),
         forAllowances: (args) =>
           prepareAllowanceOverrides({ ...args, ...defaults(args), client: bound.client }),
+        forPermit2Allowances: (args) =>
+          preparePermit2Overrides({ ...args, ...defaults(args), client: bound.client }),
         estimateRequirements: (args) =>
           estimateAssetRequirements({
             ...args,

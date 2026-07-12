@@ -1,19 +1,29 @@
-import type { Address, Hex } from "viem";
-import { encodeAbiParameters, keccak256 } from "viem";
+import type { Address, Hex, StateOverride } from "viem";
+import {
+  decodeFunctionResult,
+  encodeAbiParameters,
+  encodeFunctionData,
+  keccak256,
+  parseAbi,
+} from "viem";
 
-import { OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
+import { OVERRIDE_PERMIT2_AMOUNT, OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
 import type {
+  AllowanceSlotPair,
+  ForPermit2AllowancesArgs,
   PreparedAllowanceOverrides,
   PreparedBalanceOverrides,
+  PreparedPermit2Overrides,
   PrepareAllowanceOverridesArgs,
   PrepareBalanceOverridesArgs,
   TokenSlotOverride,
 } from "../types.js";
-import { addressKey, uint256Hex } from "./data.js";
+import { addressKey, getCallData, normalizeAddress, uint256Hex } from "./data.js";
 import { DEBUG_STEPS } from "./debugSteps.js";
+import type { DebugStep } from "./debugSteps.js";
 import { discoverAllowanceSlot, discoverBalanceSlot, readAllowance } from "./probes.js";
 import type { ClientArgs, RpcCallArgs } from "./rpc.js";
-import { blockOptionsSpread } from "./rpc.js";
+import { blockOptionsSpread, buildCallParameters, withRpcDebug } from "./rpc.js";
 
 type SlotFact = {
   token: Address;
@@ -209,4 +219,153 @@ function inferAllowanceBaseSlot(args: {
     if (allowanceSlotFor(args.owner, args.spender, base).toLowerCase() === target) return base;
   }
   return undefined;
+}
+
+// Permit2 internal allowances
+/** Canonical Permit2 singleton, same address on every chain. */
+const CANONICAL_PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as Address;
+
+/** Permit2 packs `{uint160 amount; uint48 expiration; uint48 nonce}` into one slot. */
+const EXPIRATION_MAX = 2n ** 48n - 1n;
+
+/** Base-slot search order; `1` first (canonical `AllowanceTransfer.allowance` slot). Ordered, never raced. */
+const PERMIT2_BASE_SLOTS = [1n, 0n, 2n, 3n, 4n, 5n, 6n, 7n, 8n];
+
+const PERMIT2_ALLOWANCE_ABI = parseAbi([
+  "function allowance(address, address, address) view returns (uint160 amount, uint48 expiration, uint48 nonce)",
+]);
+
+type Permit2Allowance = { amount: bigint; expiration: bigint; nonce: bigint };
+
+/**
+ * @internal Implements `TxSimulator.tokenOverrides.forPermit2Allowances`. Prefer the instance API
+ * from the package root. Overridden slots target the Permit2 contract's storage, not the ERC-20.
+ */
+export async function preparePermit2Overrides(
+  args: ForPermit2AllowancesArgs & ClientArgs,
+): Promise<PreparedPermit2Overrides> {
+  const permit2 = normalizeAddress(args.permit2Address ?? CANONICAL_PERMIT2);
+  const slots: TokenSlotOverride[] = [];
+  const pairs: AllowanceSlotPair[] = [];
+  const unresolved: AllowanceSlotPair[] = [];
+  let cachedBase: bigint | undefined;
+
+  // Sequential: the base-slot layout is a per-contract constant, so caching the first hit lets the
+  // remaining pairs skip discovery. Ordered on purpose — the verification reads are never raced.
+  for (const pair of args.pairs) {
+    const resolved = await resolvePermit2Slot({
+      client: args.client,
+      permit2,
+      owner: args.from,
+      token: pair.token,
+      spender: pair.spender,
+      cachedBase,
+      gas: args.gas,
+      debug: args.debug,
+      ...blockOptionsSpread(args),
+    });
+    if (resolved === undefined) {
+      unresolved.push({ token: pair.token, spender: pair.spender });
+      continue;
+    }
+    cachedBase = resolved.base;
+    slots.push(resolved.override);
+    pairs.push({ token: pair.token, spender: pair.spender });
+  }
+
+  return { slots, pairs, unresolved };
+}
+
+async function resolvePermit2Slot(
+  args: RpcCallArgs & {
+    permit2: Address;
+    owner: Address;
+    token: Address;
+    spender: Address;
+    cachedBase: bigint | undefined;
+  },
+): Promise<{ override: TokenSlotOverride; base: bigint } | undefined> {
+  const current = await readPermit2Allowance({
+    ...args,
+    debugStep: DEBUG_STEPS.permit2AllowanceRead,
+  });
+  if (current === undefined) return undefined;
+
+  // Preserve the on-chain nonce: `permit()` verifies the signed nonce against storage.
+  const packed = (current.nonce << 208n) | (EXPIRATION_MAX << 160n) | OVERRIDE_PERMIT2_AMOUNT;
+  const bases =
+    args.cachedBase === undefined
+      ? PERMIT2_BASE_SLOTS
+      : [args.cachedBase, ...PERMIT2_BASE_SLOTS.filter((base) => base !== args.cachedBase)];
+
+  for (const base of bases) {
+    const slot = permit2AllowanceSlot(args.owner, args.token, args.spender, base);
+    const verified = await readPermit2Allowance({
+      ...args,
+      stateOverride: [{ address: args.permit2, stateDiff: [{ slot, value: uint256Hex(packed) }] }],
+      debugStep: DEBUG_STEPS.permit2AllowanceVerify,
+    });
+    if (
+      verified !== undefined &&
+      verified.amount === OVERRIDE_PERMIT2_AMOUNT &&
+      verified.nonce === current.nonce
+    ) {
+      return { override: { token: args.permit2, slot, amount: packed }, base };
+    }
+  }
+  return undefined;
+}
+
+async function readPermit2Allowance(
+  args: RpcCallArgs & {
+    permit2: Address;
+    owner: Address;
+    token: Address;
+    spender: Address;
+    stateOverride?: StateOverride;
+    debugStep: DebugStep;
+  },
+): Promise<Permit2Allowance | undefined> {
+  const data = encodeFunctionData({
+    abi: PERMIT2_ALLOWANCE_ABI,
+    functionName: "allowance",
+    args: [args.owner, args.token, args.spender],
+  });
+  try {
+    const result = await withRpcDebug(
+      args.debug,
+      {
+        method: "eth_call",
+        step: args.debugStep,
+        details: {
+          account: args.owner,
+          to: args.permit2,
+          stateOverrides: args.stateOverride?.length ?? 0,
+        },
+      },
+      () =>
+        args.client.call(
+          buildCallParameters({
+            account: args.owner,
+            to: args.permit2,
+            data,
+            stateOverride: args.stateOverride,
+            gas: args.gas,
+            ...blockOptionsSpread(args),
+          }),
+        ),
+    );
+    const [amount, expiration, nonce] = decodeFunctionResult({
+      abi: PERMIT2_ALLOWANCE_ABI,
+      functionName: "allowance",
+      data: getCallData(result),
+    });
+    return { amount: BigInt(amount), expiration: BigInt(expiration), nonce: BigInt(nonce) };
+  } catch {
+    return undefined;
+  }
+}
+
+function permit2AllowanceSlot(owner: Address, token: Address, spender: Address, base: bigint): Hex {
+  return mappingSlot(spender, mappingSlot(token, mappingSlot(owner, base)));
 }
