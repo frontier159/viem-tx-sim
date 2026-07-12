@@ -26,10 +26,11 @@ export const OVERRIDE_TOKEN_AMOUNT = 10n ** 50n;
 export const OVERRIDE_PERMIT2_AMOUNT = 10n ** 45n;
 
 /**
- * Maximum gas attached to `eth_createAccessList` requests.
+ * Default gas attached to `eth_createAccessList` requests when the caller supplies none.
  *
  * Providers cap this method far below their `eth_call` cap (Alchemy mainnet rejects the default
- * simulation budget while accepting ~10M), so the simulation gas budget is clamped to this ceiling
- * for access-list requests only.
+ * simulation budget while accepting ~10M), so access-list requests default to this provider-safe,
+ * walletchan-proven ceiling instead of the simulation budget. Explicitly supplied gas is sent
+ * verbatim, never clamped.
  */
 export const ACCESS_LIST_GAS_LIMIT = 10_000_000n;

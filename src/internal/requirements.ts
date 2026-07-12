@@ -46,6 +46,7 @@ export async function estimateAssetRequirements(
       from: args.from,
       calls,
       gas: args.gas,
+      accessListGas: args.accessListGas,
       debug: args.debug,
       ...blockOptionsSpread(args),
     });
@@ -75,6 +76,7 @@ export async function estimateAssetRequirements(
       from: args.from,
       tokens,
       gas: args.gas,
+      accessListGas: args.accessListGas,
       debug: args.debug,
       ...blockOptionsSpread(args),
     }),
@@ -83,6 +85,7 @@ export async function estimateAssetRequirements(
       from: args.from,
       pairs: allowancePairs(tokens, spenders),
       gas: args.gas,
+      accessListGas: args.accessListGas,
       debug: args.debug,
       ...blockOptionsSpread(args),
     }),

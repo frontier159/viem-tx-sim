@@ -62,6 +62,7 @@ async function discoverSlot(
     to: args.token,
     data: args.data,
     gas: args.gas,
+    accessListGas: args.accessListGas,
     debug: args.debug,
     debugStep: args.steps.accessList,
     ...blockOptionsSpread(args),

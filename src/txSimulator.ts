@@ -174,9 +174,13 @@ export const TxSimulator = {
     const defaults = (args: BoundCallDefaults) => {
       const gas = args.gas ?? bound.gas ?? DEFAULT_SIMULATION_GAS_LIMIT;
       const debug = args.debug ?? bound.debug;
+      // No DEFAULT_SIMULATION_GAS_LIMIT fallback: `undefined` means "caller chose no gas", which
+      // makes createAccessList apply its 10M default rather than the simulation budget.
+      const accessListGas = args.gas ?? bound.gas;
 
       return {
         gas,
+        ...(accessListGas !== undefined ? { accessListGas } : {}),
         ...(debug !== undefined ? { debug } : {}),
       };
     };

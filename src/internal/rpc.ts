@@ -23,12 +23,20 @@ export type BlockOptions = {
   blockTag?: BlockTag;
 };
 
-/** Attaches the bound viem client to public per-call args for internal implementations. */
-export type ClientArgs = { client: PublicClient };
+/**
+ * Attaches the bound viem client (and internal-only `accessListGas`) to public per-call args for
+ * internal implementations.
+ */
+export type ClientArgs = { client: PublicClient; accessListGas?: bigint };
 
 export type RpcCallArgs = {
   client: PublicClient;
   gas?: bigint;
+  /**
+   * Explicit caller gas for `eth_createAccessList`. When absent the request uses
+   * {@link ACCESS_LIST_GAS_LIMIT}; when present it is sent verbatim (no clamp).
+   */
+  accessListGas?: bigint;
   debug?: SimulationDebug;
 } & BlockOptions;
 
@@ -87,18 +95,15 @@ export async function createAccessList(
     debugStep?: DebugStep;
   },
 ): Promise<AccessList> {
-  const gas =
-    args.gas === undefined
-      ? undefined
-      : args.gas > ACCESS_LIST_GAS_LIMIT
-        ? ACCESS_LIST_GAS_LIMIT
-        : args.gas;
+  // Walletchan's model: attach a fixed provider-safe default when the caller supplied no gas, and
+  // respect explicit caller gas verbatim (no clamp in either direction).
+  const gas = args.accessListGas ?? ACCESS_LIST_GAS_LIMIT;
   const request = {
     from: normalizeAddress(args.from),
     to: normalizeAddress(args.to),
     data: args.data,
     ...(args.value !== undefined ? { value: numberToHex(args.value) } : {}),
-    ...(gas !== undefined ? { gas: numberToHex(gas) } : {}),
+    gas: numberToHex(gas),
   } satisfies AccessListRpcRequest;
   const block =
     args.blockNumber !== undefined ? numberToHex(args.blockNumber) : (args.blockTag ?? "latest");
@@ -113,7 +118,7 @@ export async function createAccessList(
           from: args.from,
           to: args.to,
           hasValue: (args.value ?? 0n) > 0n,
-          hasGas: gas !== undefined,
+          hasGas: true,
         },
       },
       () => requestAccessList(args.client, request, block),

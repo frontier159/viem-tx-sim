@@ -35,6 +35,7 @@ export async function discoverErc20s(
       from: args.from,
       calls,
       gas: args.gas,
+      accessListGas: args.accessListGas,
       debug: args.debug,
       ...blockOptionsSpread(args),
     });

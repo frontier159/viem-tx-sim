@@ -424,6 +424,25 @@ describe("error handling", () => {
     expect(request.gas).toBe("0x4c4b40"); // 5,000,000
   });
 
+  it("passes explicit above-10M gas through to eth_createAccessList verbatim", async () => {
+    let params: unknown;
+    const sim = TxSimulator.create({
+      client: fakeClient({
+        eth_createAccessList: (captured) => {
+          params = captured;
+          return { accessList: [] };
+        },
+        eth_call: () => encodeSimulationResult(),
+      }),
+      gas: 16_000_000n,
+    });
+
+    await sim.balanceQueries.discoverErc20s({ from, calls: [{ to, data: "0x" }] });
+
+    const [request] = params as [{ gas: string }];
+    expect(request.gas).toBe("0xf42400"); // 16,000,000 — verbatim, no clamp to 10M
+  });
+
   it("reports a selector-less revert with undefined decode fields", async () => {
     const sim = simulatorFor({
       eth_call: () =>

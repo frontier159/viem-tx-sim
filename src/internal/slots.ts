@@ -54,6 +54,7 @@ export async function prepareBalanceOverrides(
         owner: args.from,
         sentinel: OVERRIDE_TOKEN_AMOUNT,
         gas: args.gas,
+        accessListGas: args.accessListGas,
         debug: args.debug,
         ...blockOptionsSpread(args),
       }),
@@ -75,6 +76,7 @@ export async function prepareAllowanceOverrides(
     pairs: args.pairs,
     sentinel: OVERRIDE_TOKEN_AMOUNT,
     gas: args.gas,
+    accessListGas: args.accessListGas,
     debug: args.debug,
     ...blockOptionsSpread(args),
   });
@@ -170,6 +172,7 @@ async function probeAllowanceSlot(
     spender: args.spender,
     sentinel: args.sentinel,
     gas: args.gas,
+    accessListGas: args.accessListGas,
     debug: args.debug,
     ...blockOptionsSpread(args),
   });

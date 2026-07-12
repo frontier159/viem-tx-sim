@@ -203,6 +203,7 @@ export async function discoverCandidateAddresses(
         data: call.data,
         value: call.value ?? 0n,
         gas: args.gas,
+        accessListGas: args.accessListGas,
         debug: args.debug,
         debugStep: DEBUG_STEPS.candidateDiscoveryAccessList,
         ...blockOptionsSpread(args),
