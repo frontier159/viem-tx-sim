@@ -73,6 +73,10 @@ export interface TxSimulator {
      * This runs access-list candidate discovery, then one token-filter `eth_call`, and returns
      * native plus token balance queries for `from`. Pass the result to `simulate`.
      *
+     * When the provider rejects access lists because `from` cannot fund the calls, discovery
+     * degrades to the direct call targets (direct transfers still discovered; intermediary tokens
+     * touched later in the call may be missed).
+     *
      * @throws AccessListUnsupportedError when the RPC endpoint cannot provide access lists.
      * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
      */
@@ -83,6 +87,10 @@ export interface TxSimulator {
      *
      * This is the discovery half of `forUser`; map the returned addresses yourself when observing a
      * different account.
+     *
+     * When the provider rejects access lists because `from` cannot fund the calls, discovery
+     * degrades to the direct call targets (direct transfers still discovered; intermediary tokens
+     * touched later in the call may be missed).
      *
      * @throws AccessListUnsupportedError when the RPC endpoint cannot provide access lists.
      * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.

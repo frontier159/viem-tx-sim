@@ -1,8 +1,9 @@
 import type { Address } from "viem";
 
 import type { BalanceQuery, ForUserBalanceQueriesArgs, SimulatedCall } from "../types.js";
+import { uniqueAddresses } from "./data.js";
 import type { ClientArgs } from "./rpc.js";
-import { blockOptionsSpread } from "./rpc.js";
+import { blockOptionsSpread, isInsufficientFunds } from "./rpc.js";
 import { DEBUG_STEPS } from "./debugSteps.js";
 import { discoverCandidateAddresses, runSimulator } from "./simulator.js";
 
@@ -27,14 +28,20 @@ export async function discoverErc20s(
     data: call.data,
     value: call.value ?? 0n,
   })) satisfies SimulatedCall[];
-  const candidates = await discoverCandidateAddresses({
-    client: args.client,
-    from: args.from,
-    calls,
-    gas: args.gas,
-    debug: args.debug,
-    ...blockOptionsSpread(args),
-  });
+  let candidates: Address[];
+  try {
+    candidates = await discoverCandidateAddresses({
+      client: args.client,
+      from: args.from,
+      calls,
+      gas: args.gas,
+      debug: args.debug,
+      ...blockOptionsSpread(args),
+    });
+  } catch (cause) {
+    if (!isInsufficientFunds(cause)) throw cause;
+    candidates = uniqueAddresses(calls.map((call) => call.to));
+  }
   const result = await runSimulator({
     client: args.client,
     from: args.from,

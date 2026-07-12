@@ -194,6 +194,43 @@ describe("error handling", () => {
     ).toBe(true);
   });
 
+  it("degrades discovery to call targets on insufficient-funds access-list rejection", async () => {
+    const events: { method: string; phase: string }[] = [];
+    const sim = simulatorFor({
+      eth_createAccessList: () => {
+        throw new Error("insufficient funds for gas * price + value");
+      },
+      eth_call: () => encodeSimulationResult({ observedTokens: [to] }),
+    });
+
+    await expect(
+      sim.balanceQueries.discoverErc20s({
+        from,
+        calls: [{ to, data: "0x" }],
+        debug: (event) => events.push(event),
+      }),
+    ).resolves.toEqual([to]);
+    expect(
+      events.some((event) => event.method === "eth_createAccessList" && event.phase === "error"),
+    ).toBe(true);
+  });
+
+  it("forUser inherits the insufficient-funds discovery degradation", async () => {
+    const sim = simulatorFor({
+      eth_createAccessList: () => {
+        throw new Error("insufficient funds for gas * price + value");
+      },
+      eth_call: () => encodeSimulationResult({ observedTokens: [to] }),
+    });
+
+    await expect(
+      sim.balanceQueries.forUser({ from, calls: [{ to, data: "0x" }] }),
+    ).resolves.toEqual([
+      { asset: "native", account: from },
+      { asset: to, account: from },
+    ]);
+  });
+
   it("rethrows an infrastructure error from the estimator", async () => {
     const sim = simulatorFor({
       eth_createAccessList: () => {

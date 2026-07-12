@@ -153,6 +153,12 @@ function isRpcExecutionRevert(error: AccessListRpcResult["error"]): boolean {
   return message !== undefined && /revert/i.test(message);
 }
 
+// Classifies "the account cannot fund these calls" (account state, not infrastructure): callers may
+// deliberately degrade to direct call targets, unlike other RPC failures which stay typed errors.
+export function isInsufficientFunds(cause: unknown): boolean {
+  return cause instanceof Error && /insufficient (funds|balance)/i.test(cause.message);
+}
+
 async function requestAccessList(
   client: PublicClient,
   request: AccessListRpcRequest,

@@ -13,7 +13,7 @@ import { probeRow } from "./checkpoints.js";
 import { prepareAllowanceOverrides, prepareBalanceOverrides } from "./slots.js";
 import { addressKey, uniqueAddresses } from "./data.js";
 import type { ClientArgs } from "./rpc.js";
-import { blockOptionsSpread } from "./rpc.js";
+import { blockOptionsSpread, isInsufficientFunds } from "./rpc.js";
 import { discoverCandidateAddresses, runSimulator } from "./simulator.js";
 
 const allowanceSettingAbi = parseAbi([
@@ -147,10 +147,6 @@ export async function estimateAssetRequirements(
   }
 
   return { status: "success", ...shared };
-}
-
-function isInsufficientFunds(cause: unknown): boolean {
-  return cause instanceof Error && /insufficient (funds|balance)/i.test(cause.message);
 }
 
 function allowancePairs(

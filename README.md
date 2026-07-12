@@ -110,7 +110,7 @@ RPC providers and contracts control parts of error messages and `revertReason`. 
 ## Limitations
 
 - A simulation reads one RPC state snapshot. Pending transactions, later blocks, and builder behavior can change the outcome before the signed transaction lands.
-- `balanceQueries.forUser()` derives candidates from `eth_createAccessList`. If the RPC provider returns a revert without an access list, the helper may miss addresses touched later in the call. Supply balance queries when you know the assets.
+- `balanceQueries.forUser()` derives candidates from `eth_createAccessList`. If the RPC provider returns a revert without an access list, the helper may miss addresses touched later in the call. Supply balance queries when you know the assets. When the provider rejects the access list because `from` cannot fund the calls, discovery degrades to the direct call targets rather than throwing (direct transfers still discovered; intermediary tokens may be missed).
 - Balance queries read native balances or `balanceOf(address)`. The library does not model token-ID ownership or ERC-1155 balances by ID.
 - Injecting code at `from` changes code-size and account-type checks. The ghost contract handles ERC-1271 and common NFT receiver flows. Contracts with other EOA-versus-contract branches may choose another path during simulation.
 - Storage overrides require a verified balance or allowance slot. The helper puts non-standard or indirect layouts in `unresolved` and leaves their state unchanged.
