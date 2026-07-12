@@ -22,6 +22,14 @@ contract MockPermit2 {
         allowance[owner][token][spender].nonce = nonce;
     }
 
+    /// Canonical AllowanceTransfer.approve signature: sets amount + expiration for the caller as owner,
+    /// leaving the nonce untouched. Lets a batch grant the internal allowance in-band.
+    function approve(address token, address spender, uint160 amount, uint48 expiration) external {
+        PackedAllowance storage allowed = allowance[msg.sender][token][spender];
+        allowed.amount = amount;
+        allowed.expiration = expiration;
+    }
+
     function transferFrom(address from, address to, uint160 amount, address token) external {
         PackedAllowance storage allowed = allowance[from][token][msg.sender];
         if (block.timestamp > allowed.expiration) revert AllowanceExpired();

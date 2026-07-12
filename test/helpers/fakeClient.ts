@@ -40,6 +40,7 @@ type SimulationResultStruct = {
   allowanceCheckpoints: readonly bigint[];
   balanceCheckpoints: readonly bigint[];
   balanceProbeOk: readonly boolean[];
+  permit2Checkpoints: readonly bigint[];
 };
 
 /** Encodes a ghost-contract `SimulationResult` the way a node would return it from `eth_call`. */
@@ -54,6 +55,7 @@ export function encodeSimulationResult(overrides: Partial<SimulationResultStruct
     allowanceCheckpoints: [],
     balanceCheckpoints: [],
     balanceProbeOk: [],
+    permit2Checkpoints: [],
     ...overrides,
   };
   return encodeFunctionResult({ abi: txSimulatorAbi, functionName: "simulate", result });

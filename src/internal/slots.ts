@@ -233,7 +233,7 @@ function inferAllowanceBaseSlot(args: {
 
 // Permit2 internal allowances
 /** Canonical Permit2 singleton, same address on every chain. */
-const CANONICAL_PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as Address;
+export const CANONICAL_PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as Address;
 
 /** Permit2 packs `{uint160 amount; uint48 expiration; uint48 nonce}` into one slot. */
 const EXPIRATION_MAX = 2n ** 48n - 1n;

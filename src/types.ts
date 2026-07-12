@@ -204,6 +204,12 @@ export type EstimateAssetRequirementsArgs = SimulationOptions & {
   from: Address;
   /** One call or an ERC-5792-style sequential batch. Must contain at least one call. */
   calls: readonly SimulatedCall[];
+  /**
+   * Permit2 singleton address; defaults to the canonical `0x0000...78BA3`. Permit2 measurement only
+   * engages when this address is actually touched by the batch, so overriding it costs nothing on
+   * paths that never route through Permit2.
+   */
+  permit2Address?: Address;
   /** Additional error definitions for decoding this call's reverts; merged after the bound errorAbi. */
   errorAbi?: Abi;
 };
@@ -239,6 +245,12 @@ type EstimatedAssetRequirementsBase = {
   balances: RequiredBalance[];
   /** Minimum allowances needed before the batch, excluding allowances set inside the batch. */
   allowances: RequiredAllowance[];
+  /**
+   * Minimum Permit2 internal allowances needed per (token, spender), excluding grants made inside the
+   * batch. Empty on paths that never touch Permit2. Batch-permit (`PermitBatch`) grants are not
+   * detected, so such a batch may over-report here.
+   */
+  permit2Allowances: RequiredAllowance[];
   /** Verified slots prepared along the way; pass to `simulate` as `tokenSlotOverrides`. */
   slots: TokenSlotOverride[];
   /** Values the estimator could not verify or could not trust. */
@@ -252,6 +264,10 @@ type EstimatedAssetRequirementsBase = {
     allowanceSlots: AllowanceSlotPair[];
     /** Token/spender pairs measured but discarded as unreliable, usually because they exceeded gross outflow. */
     allowances: AllowanceSlotPair[];
+    /** Token/spender pairs whose Permit2 internal-allowance slot could not be sentinel-verified. */
+    permit2Slots: AllowanceSlotPair[];
+    /** Token/spender pairs whose Permit2 allowance was measured but discarded as unreliable. */
+    permit2Allowances: AllowanceSlotPair[];
   };
 };
 

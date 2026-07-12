@@ -39,6 +39,7 @@ type ProbeData = {
   allowanceCheckpoints: readonly bigint[];
   balanceCheckpoints: readonly bigint[];
   balanceProbeOk: readonly boolean[];
+  permit2Checkpoints: readonly bigint[];
 };
 
 type SimulatorBase = {
@@ -61,8 +62,8 @@ export const txSimulatorAbi = parseAbi([
   "struct SimulatedCall { address to; uint256 value; bytes data; }",
   "struct AllowanceProbe { address token; address spender; }",
   "struct BalanceProbe { address token; address account; }",
-  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; address[] observedTokens; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; uint256[] balanceCheckpoints; bool[] balanceProbeOk; }",
-  "function simulate(SimulatedCall[] calls, address[] candidates, AllowanceProbe[] probes, BalanceProbe[] balanceProbes) returns (SimulationResult)",
+  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; address[] observedTokens; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; uint256[] balanceCheckpoints; bool[] balanceProbeOk; uint256[] permit2Checkpoints; }",
+  "function simulate(SimulatedCall[] calls, address[] candidates, AllowanceProbe[] probes, BalanceProbe[] balanceProbes, address permit2, AllowanceProbe[] permit2Probes) returns (SimulationResult)",
   "function isValidSignature(bytes32 hash, bytes signature) view returns (bytes4)",
 ]);
 
@@ -75,6 +76,8 @@ export async function runSimulator(
     extraStateOverrides?: readonly StateOverrideEntry[];
     allowanceProbes?: readonly { token: Address; spender: Address }[];
     balanceProbes?: readonly { token: Address | "native"; account: Address }[];
+    permit2?: Address;
+    permit2Probes?: readonly { token: Address; spender: Address }[];
     debugStep?: DebugStep;
     errorAbi?: Abi;
   },
@@ -96,6 +99,8 @@ export async function runSimulator(
       candidates,
       args.allowanceProbes ?? [],
       balanceProbes,
+      args.permit2 ?? zeroAddress,
+      args.permit2Probes ?? [],
     ],
   });
 
@@ -161,6 +166,7 @@ export async function runSimulator(
     allowanceCheckpoints: result.allowanceCheckpoints,
     balanceCheckpoints: result.balanceCheckpoints,
     balanceProbeOk: result.balanceProbeOk,
+    permit2Checkpoints: result.permit2Checkpoints,
   };
 
   if (!result.success) {

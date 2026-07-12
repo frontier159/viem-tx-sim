@@ -106,8 +106,15 @@ const fake: TxSimulator = {
       native: 0n,
       balances: [],
       allowances: [],
+      permit2Allowances: [],
       slots: [],
-      unresolved: { balanceSlots: [], allowanceSlots: [], allowances: [] },
+      unresolved: {
+        balanceSlots: [],
+        allowanceSlots: [],
+        allowances: [],
+        permit2Slots: [],
+        permit2Allowances: [],
+      },
     }),
   },
 };

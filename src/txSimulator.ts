@@ -145,6 +145,11 @@ export interface TxSimulator {
      * estimated under forged balances/allowances and should be padded before display or transaction
      * assembly; unreliable measurements are reported under `unresolved`.
      *
+     * On Permit2-routed paths (the batch touches the `permit2Address` singleton, canonical by
+     * default), the estimator also forges and measures the Permit2 internal allowance per (token,
+     * spender), reported as `permit2Allowances`; batches that never touch Permit2 are unchanged.
+     * Batch-permit (`PermitBatch`) in-batch grants are not detected, so such a batch may over-report.
+     *
      * @throws InvalidSimulationInputError when `calls` is empty.
      * @throws AccessListUnsupportedError when the RPC endpoint cannot provide access lists.
      * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides or

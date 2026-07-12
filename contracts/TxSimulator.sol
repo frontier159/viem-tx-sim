@@ -8,6 +8,8 @@ contract TxSimulator is IERC1271Like {
     bytes4 internal constant ERC1271_INVALID_VALUE = 0xffffffff;
     bytes4 internal constant BALANCE_OF_SELECTOR = 0x70a08231;
     bytes4 internal constant ALLOWANCE_SELECTOR = 0xdd62ed3e;
+    /// Permit2 `allowance(address owner, address token, address spender)` — verified via `cast sig`.
+    bytes4 internal constant PERMIT2_ALLOWANCE_SELECTOR = 0x927da105;
 
     /// Gas forwarded to best-effort balance/allowance probes. Bounds hostile or pathological
     /// implementations (e.g. a balanceOf that infinite-loops) to a fixed cost so one bad candidate
@@ -40,6 +42,7 @@ contract TxSimulator is IERC1271Like {
         uint256[] allowanceCheckpoints;
         uint256[] balanceCheckpoints;
         bool[] balanceProbeOk;
+        uint256[] permit2Checkpoints;
     }
 
     struct TokenState {
@@ -56,36 +59,45 @@ contract TxSimulator is IERC1271Like {
         uint256[] allowanceCheckpoints;
         uint256[] balanceCheckpoints;
         bool[] balanceProbeOk;
+        uint256[] permit2Checkpoints;
+        address permit2;
         uint256 stride;
+        uint256 nativeStart;
+        uint256 nativeMin;
+        // Outputs of `_executeCalls`, written here rather than returned to keep that function's stack
+        // within the EVM's 16-slot limit alongside its five calldata array parameters.
+        bool success;
+        uint256 failingCallIndex;
+        bytes revertData;
+        uint256 nativeOutflow;
     }
 
     function simulate(
         SimulatedCall[] calldata calls,
         address[] calldata candidates,
         AllowanceProbe[] calldata probes,
-        BalanceProbe[] calldata balanceProbes
+        BalanceProbe[] calldata balanceProbes,
+        address permit2,
+        AllowanceProbe[] calldata permit2Probes
     ) external returns (SimulationResult memory result) {
-        uint256 nativeBefore = address(this).balance;
         TokenState memory tokenState = _snapshotTokens(candidates);
-        uint256 stride = calls.length + 1;
-        result.balanceCheckpoints = new uint256[](balanceProbes.length * stride);
-        result.balanceProbeOk = new bool[](balanceProbes.length);
+        // Built in a helper so the checkpoint-array allocations don't pin extra stack slots in this
+        // frame; the arrays are shared by reference with `result` below.
+        ExecutionState memory executionState = _newExecutionState(
+            tokenState, calls.length + 1, probes.length, balanceProbes.length, permit2Probes.length, permit2
+        );
+        result.allowanceCheckpoints = executionState.allowanceCheckpoints;
+        result.balanceCheckpoints = executionState.balanceCheckpoints;
+        result.balanceProbeOk = executionState.balanceProbeOk;
+        result.permit2Checkpoints = executionState.permit2Checkpoints;
 
-        result.allowanceCheckpoints = new uint256[](probes.length * stride);
-        ExecutionState memory executionState = ExecutionState({
-            isToken: tokenState.isToken,
-            minBalances: tokenState.minBalances,
-            allowanceCheckpoints: result.allowanceCheckpoints,
-            balanceCheckpoints: result.balanceCheckpoints,
-            balanceProbeOk: result.balanceProbeOk,
-            stride: stride
-        });
-        uint256 nativeMin;
-        (result.success, result.failingCallIndex, result.revertData, nativeMin) =
-            _executeCalls(calls, candidates, probes, balanceProbes, executionState);
+        _executeCalls(calls, candidates, probes, balanceProbes, permit2Probes, executionState);
+        result.success = executionState.success;
+        result.failingCallIndex = executionState.failingCallIndex;
+        result.revertData = executionState.revertData;
+        result.maxNativeOutflow = executionState.nativeOutflow;
 
         result.observedTokens = _trimAddresses(tokenState.observedScratch, tokenState.observedCount);
-        result.maxNativeOutflow = nativeBefore >= nativeMin ? nativeBefore - nativeMin : 0;
 
         result.maxTokenOutflows = new uint256[](candidates.length);
         for (uint256 i = 0; i < candidates.length; ++i) {
@@ -93,6 +105,24 @@ contract TxSimulator is IERC1271Like {
                 result.maxTokenOutflows[i] = tokenState.beforeBalances[i] - tokenState.minBalances[i];
             }
         }
+    }
+
+    function _newExecutionState(
+        TokenState memory tokenState,
+        uint256 stride,
+        uint256 allowanceProbeCount,
+        uint256 balanceProbeCount,
+        uint256 permit2ProbeCount,
+        address permit2
+    ) internal pure returns (ExecutionState memory executionState) {
+        executionState.isToken = tokenState.isToken;
+        executionState.minBalances = tokenState.minBalances;
+        executionState.allowanceCheckpoints = new uint256[](allowanceProbeCount * stride);
+        executionState.balanceCheckpoints = new uint256[](balanceProbeCount * stride);
+        executionState.balanceProbeOk = new bool[](balanceProbeCount);
+        executionState.permit2Checkpoints = new uint256[](permit2ProbeCount * stride);
+        executionState.permit2 = permit2;
+        executionState.stride = stride;
     }
 
     function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4) {
@@ -146,11 +176,13 @@ contract TxSimulator is IERC1271Like {
         address[] calldata candidates,
         AllowanceProbe[] calldata probes,
         BalanceProbe[] calldata balanceProbes,
+        AllowanceProbe[] calldata permit2Probes,
         ExecutionState memory executionState
-    ) internal returns (bool success, uint256 failingCallIndex, bytes memory revertData, uint256 nativeMin) {
-        success = true;
-        failingCallIndex = type(uint256).max;
-        nativeMin = address(this).balance;
+    ) internal {
+        executionState.success = true;
+        executionState.failingCallIndex = type(uint256).max;
+        executionState.nativeStart = address(this).balance;
+        executionState.nativeMin = executionState.nativeStart;
         if (probes.length > 0) {
             _recordAllowanceCheckpoints(probes, executionState.stride, 0, executionState.allowanceCheckpoints);
         }
@@ -163,11 +195,16 @@ contract TxSimulator is IERC1271Like {
                 executionState.balanceProbeOk
             );
         }
+        if (permit2Probes.length > 0) {
+            _recordPermit2Checkpoints(
+                executionState.permit2, permit2Probes, executionState.stride, 0, executionState.permit2Checkpoints
+            );
+        }
 
         for (uint256 i = 0; i < calls.length; ++i) {
-            (success, revertData) = _executeCall(calls[i]);
-            if (!success) {
-                failingCallIndex = i;
+            (executionState.success, executionState.revertData) = _executeCall(calls[i]);
+            if (!executionState.success) {
+                executionState.failingCallIndex = i;
                 if (probes.length > 0) {
                     _fillRemainingCheckpoints(
                         probes.length, executionState.stride, i, executionState.allowanceCheckpoints
@@ -178,11 +215,16 @@ contract TxSimulator is IERC1271Like {
                         balanceProbes.length, executionState.stride, i, executionState.balanceCheckpoints
                     );
                 }
+                if (permit2Probes.length > 0) {
+                    _fillRemainingCheckpoints(
+                        permit2Probes.length, executionState.stride, i, executionState.permit2Checkpoints
+                    );
+                }
                 break;
             }
 
             uint256 nativeAfter = address(this).balance;
-            if (nativeAfter < nativeMin) nativeMin = nativeAfter;
+            if (nativeAfter < executionState.nativeMin) executionState.nativeMin = nativeAfter;
             _updateMinBalances(candidates, executionState.isToken, executionState.minBalances);
             if (probes.length > 0) {
                 _recordAllowanceCheckpoints(probes, executionState.stride, i + 1, executionState.allowanceCheckpoints);
@@ -196,7 +238,16 @@ contract TxSimulator is IERC1271Like {
                     executionState.balanceProbeOk
                 );
             }
+            if (permit2Probes.length > 0) {
+                _recordPermit2Checkpoints(
+                    executionState.permit2, permit2Probes, executionState.stride, i + 1, executionState.permit2Checkpoints
+                );
+            }
         }
+
+        executionState.nativeOutflow = executionState.nativeStart >= executionState.nativeMin
+            ? executionState.nativeStart - executionState.nativeMin
+            : 0;
     }
 
     function _executeCall(SimulatedCall calldata call_) internal returns (bool ok, bytes memory revertData) {
@@ -226,6 +277,20 @@ contract TxSimulator is IERC1271Like {
         for (uint256 i = 0; i < probes.length; ++i) {
             (bool ok, uint256 allowance) = _tryAllowance(probes[i].token, address(this), probes[i].spender);
             checkpoints[i * stride + offset] = ok ? allowance : 0;
+        }
+    }
+
+    function _recordPermit2Checkpoints(
+        address permit2,
+        AllowanceProbe[] calldata probes,
+        uint256 stride,
+        uint256 offset,
+        uint256[] memory checkpoints
+    ) internal view {
+        for (uint256 i = 0; i < probes.length; ++i) {
+            (bool ok, uint256 amount) =
+                _tryPermit2Allowance(permit2, probes[i].token, address(this), probes[i].spender);
+            checkpoints[i * stride + offset] = ok ? amount : 0;
         }
     }
 
@@ -286,6 +351,21 @@ contract TxSimulator is IERC1271Like {
         if (!success || data.length < 32) return (ok, allowance);
         ok = success;
         allowance = abi.decode(data, (uint256));
+    }
+
+    /// Best-effort Permit2 internal-allowance read. The getter returns (uint160 amount, uint48
+    /// expiration, uint48 nonce) as three words; only the amount is relevant to measurement.
+    function _tryPermit2Allowance(address permit2, address token, address owner, address spender)
+        internal
+        view
+        returns (bool ok, uint256 amount)
+    {
+        bytes memory callData = abi.encodeWithSelector(PERMIT2_ALLOWANCE_SELECTOR, owner, token, spender);
+        // forge-lint: disable-next-line(low-level-calls, calls-loop)
+        (bool success, bytes memory data) = permit2.staticcall{gas: PROBE_GAS_LIMIT}(callData);
+        if (!success || data.length < 96) return (ok, amount);
+        ok = success;
+        amount = abi.decode(data, (uint160));
     }
 
     function _trimAddresses(address[] memory input, uint256 length) internal pure returns (address[] memory output) {

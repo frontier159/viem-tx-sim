@@ -6,12 +6,19 @@ import type {
   AllowanceSlotPair,
   EstimatedAssetRequirements,
   EstimateAssetRequirementsArgs,
+  PreparedPermit2Overrides,
+  RequiredAllowance,
   SimulatedCall,
 } from "../types.js";
 import { OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
 import { probeRow } from "./checkpoints.js";
-import { prepareAllowanceOverrides, prepareBalanceOverrides } from "./slots.js";
-import { addressKey, uniqueAddresses } from "./data.js";
+import {
+  CANONICAL_PERMIT2,
+  prepareAllowanceOverrides,
+  prepareBalanceOverrides,
+  preparePermit2Overrides,
+} from "./slots.js";
+import { addressKey, normalizeAddress, uniqueAddresses } from "./data.js";
 import type { ClientArgs } from "./rpc.js";
 import { blockOptionsSpread, isInsufficientFunds } from "./rpc.js";
 import { discoverCandidateAddresses, runSimulator } from "./simulator.js";
@@ -19,6 +26,15 @@ import { discoverCandidateAddresses, runSimulator } from "./simulator.js";
 const allowanceSettingAbi = parseAbi([
   "function approve(address spender, uint256 amount) returns (bool)",
   "function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)",
+]);
+
+// Permit2 in-batch grant detection. `PermitBatch`/`permitTransferFrom` variants are out of scope, so
+// a batch that grants via those is not detected here and its requirement may be over-reported.
+const permit2GrantAbi = parseAbi([
+  "function approve(address token, address spender, uint160 amount, uint48 expiration)",
+  "struct PermitDetails { address token; uint160 amount; uint48 expiration; uint48 nonce; }",
+  "struct PermitSingle { PermitDetails details; address spender; uint256 sigDeadline; }",
+  "function permit(address owner, PermitSingle permitSingle, bytes signature)",
 ]);
 
 type AllowanceProbe = {
@@ -70,7 +86,22 @@ export async function estimateAssetRequirements(
     (address) => addressKey(address) !== addressKey(args.from),
   );
 
-  const [balanceOverrides, allowanceOverrides] = await Promise.all([
+  // Permit2 measurement engages only when the resolved singleton is actually touched by the batch;
+  // otherwise the prepare below is skipped entirely (zero extra RPC) and the probes stay empty, which
+  // the ghost contract treats as a no-op — byte-identical to a Permit2-free estimate.
+  const permit2Address = normalizeAddress(args.permit2Address ?? CANONICAL_PERMIT2);
+  const permit2Involved = [...candidateAddresses, ...calls.map((call) => call.to)].some(
+    (address) => addressKey(address) === addressKey(permit2Address),
+  );
+  const permit2Pairs = permit2Involved
+    ? allowancePairs(
+        tokens,
+        spenders.filter((spender) => addressKey(spender) !== addressKey(permit2Address)),
+      )
+    : [];
+
+  const emptyPermit2: PreparedPermit2Overrides = { slots: [], pairs: [], unresolved: [] };
+  const [balanceOverrides, allowanceOverrides, permit2Overrides] = await Promise.all([
     prepareBalanceOverrides({
       client: args.client,
       from: args.from,
@@ -89,6 +120,17 @@ export async function estimateAssetRequirements(
       debug: args.debug,
       ...blockOptionsSpread(args),
     }),
+    permit2Involved
+      ? preparePermit2Overrides({
+          client: args.client,
+          from: args.from,
+          pairs: permit2Pairs,
+          permit2Address,
+          gas: args.gas,
+          debug: args.debug,
+          ...blockOptionsSpread(args),
+        })
+      : Promise.resolve(emptyPermit2),
   ]);
   const balanceSlots = balanceOverrides.slots;
   const allowanceSlots = allowanceOverrides.slots;
@@ -96,7 +138,11 @@ export async function estimateAssetRequirements(
     token: slot.token,
     spender: slot.spender,
   }));
-  const tokenSlotOverrides = [...balanceSlots, ...allowanceSlots];
+  const permit2Probes = permit2Overrides.pairs.map((pair) => ({
+    token: pair.token,
+    spender: pair.spender,
+  }));
+  const tokenSlotOverrides = [...balanceSlots, ...allowanceSlots, ...permit2Overrides.slots];
   const measurement = await runSimulator({
     client: args.client,
     from: args.from,
@@ -105,33 +151,44 @@ export async function estimateAssetRequirements(
     tokenSlotOverrides,
     extraStateOverrides: [{ address: args.from, balance: OVERRIDE_TOKEN_AMOUNT }],
     allowanceProbes,
+    permit2: permit2Address,
+    permit2Probes,
     gas: args.gas,
     debug: args.debug,
     ...blockOptionsSpread(args),
     ...(args.errorAbi !== undefined ? { errorAbi: args.errorAbi } : {}),
   });
-  const measuredAllowances = requiredAllowances(
-    args.from,
-    calls,
+  const candidates = measurement.probeData.candidates;
+  const maxTokenOutflows = measurement.probeData.maxTokenOutflows;
+  const measuredAllowances = measureAllowanceRow(
     allowanceProbes,
     measurement.probeData.allowanceCheckpoints,
-    measurement.probeData.candidates,
-    measurement.probeData.maxTokenOutflows,
+    calls.length,
+    candidates,
+    maxTokenOutflows,
+    (probe) => firstInBatchAllowanceSetIndex(calls, args.from, probe),
+  );
+  const measuredPermit2 = measureAllowanceRow(
+    permit2Probes,
+    measurement.probeData.permit2Checkpoints,
+    calls.length,
+    candidates,
+    maxTokenOutflows,
+    (probe) => firstInBatchPermit2GrantIndex(calls, args.from, permit2Address, probe),
   );
 
   const shared = {
     native: measurement.probeData.maxNativeOutflow,
-    balances: requiredBalances(
-      measurement.probeData.candidates,
-      tokens,
-      measurement.probeData.maxTokenOutflows,
-    ),
+    balances: requiredBalances(candidates, tokens, maxTokenOutflows),
     allowances: measuredAllowances.allowances,
+    permit2Allowances: measuredPermit2.allowances,
     slots: tokenSlotOverrides,
     unresolved: {
       balanceSlots: balanceOverrides.unresolved,
       allowanceSlots: allowanceOverrides.unresolved,
       allowances: measuredAllowances.discarded,
+      permit2Slots: permit2Overrides.unresolved,
+      permit2Allowances: measuredPermit2.discarded,
     },
   };
 
@@ -180,27 +237,30 @@ function requiredBalances(
   return balances;
 }
 
-function requiredAllowances(
-  owner: Address,
-  calls: readonly SimulatedCall[],
+// Shared by ERC-20 and Permit2 allowance measurement: sum per-call decreases up to the first
+// in-batch grant, then clamp against the pair's gross token outflow. Only the grant-index resolver
+// differs between the two (ERC-20 approve/permit on the token vs. Permit2 approve/permit on the
+// singleton), so it is injected.
+function measureAllowanceRow(
   probes: readonly AllowanceProbe[],
   checkpoints: readonly bigint[],
+  callsLength: number,
   candidates: readonly Address[],
   maxTokenOutflows: readonly bigint[],
+  grantIndexFor: (probe: AllowanceProbe) => number | undefined,
 ): {
-  allowances: EstimatedAssetRequirements["allowances"];
+  allowances: RequiredAllowance[];
   discarded: AllowanceSlotPair[];
 } {
-  const allowances: EstimatedAssetRequirements["allowances"] = [];
+  const allowances: RequiredAllowance[] = [];
   const discarded: AllowanceSlotPair[] = [];
 
   for (let probeIndex = 0; probeIndex < probes.length; ++probeIndex) {
     const probe = probes[probeIndex];
     if (probe === undefined) continue;
 
-    const row = probeRow(checkpoints, probeIndex, calls.length);
-    const firstAllowanceSetIndex = firstInBatchAllowanceSetIndex(calls, owner, probe);
-    const limit = firstAllowanceSetIndex ?? calls.length;
+    const row = probeRow(checkpoints, probeIndex, callsLength);
+    const limit = grantIndexFor(probe) ?? callsLength;
     let amount = 0n;
     for (let callIndex = 0; callIndex < limit; ++callIndex) {
       const before = row[callIndex] ?? 0n;
@@ -238,6 +298,42 @@ function isAllowanceSetForSpender(data: Hex, owner: Address, spender: Address): 
     return (
       addressKey(decoded.args[0]) === addressKey(owner) &&
       addressKey(decoded.args[1]) === addressKey(spender)
+    );
+  } catch {
+    return false;
+  }
+}
+
+// The analog of firstInBatchAllowanceSetIndex, but the grant target is the Permit2 singleton, not
+// the token, and the grant is a Permit2 `approve`/`permit` (not the ERC-20 one).
+function firstInBatchPermit2GrantIndex(
+  calls: readonly SimulatedCall[],
+  owner: Address,
+  permit2: Address,
+  probe: AllowanceProbe,
+): number | undefined {
+  for (let i = 0; i < calls.length; ++i) {
+    const call = calls[i];
+    if (call === undefined || addressKey(call.to) !== addressKey(permit2)) continue;
+    if (isPermit2GrantForPair(call.data, owner, probe)) return i;
+  }
+  return undefined;
+}
+
+function isPermit2GrantForPair(data: Hex, owner: Address, probe: AllowanceProbe): boolean {
+  try {
+    const decoded = decodeFunctionData({ abi: permit2GrantAbi, data });
+    if (decoded.functionName === "approve") {
+      return (
+        addressKey(decoded.args[0]) === addressKey(probe.token) &&
+        addressKey(decoded.args[1]) === addressKey(probe.spender)
+      );
+    }
+    const [permitOwner, permitSingle] = decoded.args;
+    return (
+      addressKey(permitOwner) === addressKey(owner) &&
+      addressKey(permitSingle.details.token) === addressKey(probe.token) &&
+      addressKey(permitSingle.spender) === addressKey(probe.spender)
     );
   } catch {
     return false;
