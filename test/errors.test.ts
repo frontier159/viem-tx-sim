@@ -306,6 +306,41 @@ describe("error handling", () => {
     expect(request.to).toBe(to);
   });
 
+  it("clamps the default simulation gas to the access-list ceiling on the wire", async () => {
+    let params: unknown;
+    const sim = simulatorFor({
+      eth_createAccessList: (captured) => {
+        params = captured;
+        return { accessList: [] };
+      },
+      eth_call: () => encodeSimulationResult(),
+    });
+
+    await sim.balanceQueries.discoverErc20s({ from, calls: [{ to, data: "0x" }] });
+
+    const [request] = params as [{ gas: string }];
+    expect(request.gas).toBe("0x989680"); // 10,000,000
+  });
+
+  it("passes an explicit sub-ceiling gas through to eth_createAccessList unchanged", async () => {
+    let params: unknown;
+    const sim = TxSimulator.create({
+      client: fakeClient({
+        eth_createAccessList: (captured) => {
+          params = captured;
+          return { accessList: [] };
+        },
+        eth_call: () => encodeSimulationResult(),
+      }),
+      gas: 5_000_000n,
+    });
+
+    await sim.balanceQueries.discoverErc20s({ from, calls: [{ to, data: "0x" }] });
+
+    const [request] = params as [{ gas: string }];
+    expect(request.gas).toBe("0x4c4b40"); // 5,000,000
+  });
+
   it("reports a selector-less revert with undefined decode fields", async () => {
     const sim = simulatorFor({
       eth_call: () =>

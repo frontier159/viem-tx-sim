@@ -9,6 +9,7 @@ import type {
 } from "viem";
 import { numberToHex } from "viem";
 
+import { ACCESS_LIST_GAS_LIMIT } from "../constants.js";
 import { AccessListUnsupportedError } from "../errors.js";
 import type { SimulationDebug, SimulationDebugEvent } from "../types.js";
 import { normalizeAddress } from "./data.js";
@@ -86,12 +87,18 @@ export async function createAccessList(
     debugStep?: DebugStep;
   },
 ): Promise<AccessList> {
+  const gas =
+    args.gas === undefined
+      ? undefined
+      : args.gas > ACCESS_LIST_GAS_LIMIT
+        ? ACCESS_LIST_GAS_LIMIT
+        : args.gas;
   const request = {
     from: normalizeAddress(args.from),
     to: normalizeAddress(args.to),
     data: args.data,
     ...(args.value !== undefined ? { value: numberToHex(args.value) } : {}),
-    ...(args.gas !== undefined ? { gas: numberToHex(args.gas) } : {}),
+    ...(gas !== undefined ? { gas: numberToHex(gas) } : {}),
   } satisfies AccessListRpcRequest;
   const block =
     args.blockNumber !== undefined ? numberToHex(args.blockNumber) : (args.blockTag ?? "latest");
@@ -106,7 +113,7 @@ export async function createAccessList(
           from: args.from,
           to: args.to,
           hasValue: (args.value ?? 0n) > 0n,
-          hasGas: args.gas !== undefined,
+          hasGas: gas !== undefined,
         },
       },
       () => requestAccessList(args.client, request, block),
