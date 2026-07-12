@@ -309,6 +309,23 @@ describe("viem-tx-sim", () => {
     });
   });
 
+  it("answers ERC-165 receiver checks at the injected account", async () => {
+    const gate = await deploy(ctx, "Erc165Gate.sol", "Erc165Gate");
+    const data = encodeFunctionData({
+      abi: gate.abi,
+      functionName: "requireReceiver",
+      args: [ctx.account.address],
+    });
+
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: gate.address, data }],
+      balanceQueries: [{ asset: "native", account: ctx.account.address }],
+    });
+
+    expect(result.status).toBe("success");
+  });
+
   it("observes arbitrary accounts", async () => {
     const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const spender = await deploy(ctx, "Spender.sol", "Spender");
