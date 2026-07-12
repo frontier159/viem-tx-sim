@@ -515,6 +515,61 @@ describe("viem-tx-sim", () => {
     ]);
   });
 
+  it("resolves a gas-burning balance query as unresolved without OOG-ing the simulation", async () => {
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const gasBurner = await deploy(ctx, "GasBurner.sol", "GasBurner");
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
+
+    const data = encodeFunctionData({
+      abi: token.abi,
+      functionName: "transfer",
+      args: [ctx.secondAccount.address, 250n],
+    });
+    const gasBurnerQuery = { asset: gasBurner.address, account: ctx.account.address };
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: token.address, data }],
+      balanceQueries: [
+        { asset: "native", account: ctx.account.address },
+        { asset: token.address, account: ctx.account.address },
+        gasBurnerQuery,
+      ],
+    });
+
+    expect(result.status).toBe("success");
+    expect(balanceDelta(result, token.address)).toEqual({
+      asset: token.address,
+      account: ctx.account.address,
+      before: 1_000n,
+      after: 750n,
+      delta: -250n,
+      byCall: [-250n],
+    });
+    expect(result.unresolved).toEqual([gasBurnerQuery]);
+  });
+
+  it("filters a gas-burning candidate out of discoverErc20s without poisoning discovery", async () => {
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const gasBurner = await deploy(ctx, "GasBurner.sol", "GasBurner");
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
+
+    const transfer = encodeFunctionData({
+      abi: token.abi,
+      functionName: "transfer",
+      args: [ctx.secondAccount.address, 250n],
+    });
+    const erc20s = await sim.balanceQueries.discoverErc20s({
+      from: ctx.account.address,
+      calls: [
+        { to: token.address, data: transfer },
+        { to: gasBurner.address, data: "0x", value: 0n },
+      ],
+    });
+
+    expect(erc20s).toContain(token.address);
+    expect(erc20s).not.toContain(gasBurner.address);
+  });
+
   it("uses caller-supplied balance storage overrides for view-only token balances", async () => {
     const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const spender = await deploy(ctx, "Spender.sol", "Spender");

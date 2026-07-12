@@ -9,6 +9,11 @@ contract TxSimulator is IERC1271Like {
     bytes4 internal constant BALANCE_OF_SELECTOR = 0x70a08231;
     bytes4 internal constant ALLOWANCE_SELECTOR = 0xdd62ed3e;
 
+    /// Gas forwarded to best-effort balance/allowance probes. Bounds hostile or pathological
+    /// implementations (e.g. a balanceOf that infinite-loops) to a fixed cost so one bad candidate
+    /// cannot OOG the whole simulation. 150k covers proxied tokens with hooks; walletchan ships 100k.
+    uint256 internal constant PROBE_GAS_LIMIT = 150_000;
+
     struct SimulatedCall {
         address to;
         uint256 value;
@@ -247,7 +252,8 @@ contract TxSimulator is IERC1271Like {
 
     function _tryBalanceOf(address token, address owner) internal view returns (bool ok, uint256 balance) {
         // forge-lint: disable-next-line(low-level-calls, calls-loop)
-        (bool success, bytes memory data) = token.staticcall(abi.encodeWithSelector(BALANCE_OF_SELECTOR, owner));
+        (bool success, bytes memory data) =
+            token.staticcall{gas: PROBE_GAS_LIMIT}(abi.encodeWithSelector(BALANCE_OF_SELECTOR, owner));
         if (!success || data.length < 32) return (ok, balance);
         ok = success;
         balance = abi.decode(data, (uint256));
@@ -268,7 +274,8 @@ contract TxSimulator is IERC1271Like {
         returns (bool ok, uint256 allowance)
     {
         // forge-lint: disable-next-line(low-level-calls, calls-loop)
-        (bool success, bytes memory data) = token.staticcall(abi.encodeWithSelector(ALLOWANCE_SELECTOR, owner, spender));
+        (bool success, bytes memory data) =
+            token.staticcall{gas: PROBE_GAS_LIMIT}(abi.encodeWithSelector(ALLOWANCE_SELECTOR, owner, spender));
         if (!success || data.length < 32) return (ok, allowance);
         ok = success;
         allowance = abi.decode(data, (uint256));
