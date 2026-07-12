@@ -11,6 +11,7 @@ import { numberToHex } from "viem";
 
 import { AccessListUnsupportedError } from "../errors.js";
 import type { SimulationDebug, SimulationDebugEvent } from "../types.js";
+import { normalizeAddress } from "./data.js";
 import { DEBUG_STEPS } from "./debugSteps.js";
 import type { DebugStep } from "./debugSteps.js";
 
@@ -49,8 +50,8 @@ export function buildCallParameters(
   } & BlockOptions,
 ): CallParameters {
   const base = {
-    account: args.account,
-    to: args.to,
+    account: normalizeAddress(args.account),
+    to: normalizeAddress(args.to),
     data: args.data,
     ...(args.stateOverride !== undefined ? { stateOverride: args.stateOverride } : {}),
     ...(args.gas !== undefined ? { gas: args.gas } : {}),
@@ -86,8 +87,8 @@ export async function createAccessList(
   },
 ): Promise<AccessList> {
   const request = {
-    from: args.from,
-    to: args.to,
+    from: normalizeAddress(args.from),
+    to: normalizeAddress(args.to),
     data: args.data,
     ...(args.value !== undefined ? { value: numberToHex(args.value) } : {}),
     ...(args.gas !== undefined ? { gas: numberToHex(args.gas) } : {}),

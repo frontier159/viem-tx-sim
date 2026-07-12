@@ -256,6 +256,56 @@ describe("error handling", () => {
     expect(logged).toContain("txSimulator.simulate");
   });
 
+  it("checksum-normalizes from/to and override keys in the outgoing eth_call", async () => {
+    const lowerFrom = from.toLowerCase() as typeof from;
+    let params: unknown;
+    const sim = simulatorFor({
+      eth_call: (captured) => {
+        params = captured;
+        return encodeSimulationResult();
+      },
+    });
+
+    await sim.simulate({
+      from: lowerFrom,
+      calls: [{ to: lowerFrom, data: "0x" }],
+      balanceQueries: [{ asset: "native", account: lowerFrom }],
+    });
+
+    const [tx, , stateOverride] = params as [
+      { from: string; to: string },
+      unknown,
+      Record<string, unknown>,
+    ];
+    expect(tx.from).toBe(from);
+    expect(tx.to).toBe(from);
+    for (const key of Object.keys(stateOverride)) {
+      expect(key).toBe(getAddress(key));
+    }
+  });
+
+  it("checksum-normalizes from/to in the outgoing eth_createAccessList", async () => {
+    const lowerFrom = from.toLowerCase() as typeof from;
+    const lowerTo = to.toLowerCase() as typeof to;
+    let params: unknown;
+    const sim = simulatorFor({
+      eth_createAccessList: (captured) => {
+        params = captured;
+        return { accessList: [] };
+      },
+      eth_call: () => encodeSimulationResult(),
+    });
+
+    await sim.balanceQueries.discoverErc20s({
+      from: lowerFrom,
+      calls: [{ to: lowerTo, data: "0x" }],
+    });
+
+    const [request] = params as [{ from: string; to: string }];
+    expect(request.from).toBe(from);
+    expect(request.to).toBe(to);
+  });
+
   it("reports a selector-less revert with undefined decode fields", async () => {
     const sim = simulatorFor({
       eth_call: () =>
