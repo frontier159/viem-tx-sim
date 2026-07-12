@@ -96,6 +96,43 @@ describe("tokenOverrides.forPermit2Allowances", () => {
     expect(nonce).toBe(7);
   });
 
+  it("pins the permit2 override debug steps and per-pair RPC counts", async () => {
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const permit2 = await deploy(ctx, "MockPermit2.sol", "MockPermit2");
+    const from = ctx.account.address;
+    const spenderA = ctx.account.address;
+    const spenderB = ctx.secondAccount.address;
+
+    const events: { method: string; step: string; phase: string }[] = [];
+    const prepared = await sim.tokenOverrides.forPermit2Allowances({
+      from,
+      pairs: [
+        { token: token.address, spender: spenderA },
+        { token: token.address, spender: spenderB },
+      ],
+      permit2Address: permit2.address,
+      debug: (event) => events.push(event),
+    });
+    expect(prepared.slots).toHaveLength(2);
+    expect(prepared.unresolved).toHaveLength(0);
+
+    const success = events.filter((event) => event.phase === "success");
+    const counts = success.reduce<Record<string, number>>((acc, event) => {
+      acc[event.step] = (acc[event.step] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    // One read per pair; one verify per pair (both resolve on the canonical base slot 1, cached
+    // after the first pair). A future refactor adding hidden RPC calls fails this test.
+    expect(counts["permit2Allowance.read"]).toBe(2);
+    expect(counts["permit2Allowance.verify"]).toBe(2);
+    // No other eth_call steps leak out of the helper.
+    expect(Object.keys(counts).sort()).toEqual([
+      "permit2Allowance.read",
+      "permit2Allowance.verify",
+    ]);
+  });
+
   it("reports the pair as unresolved when the target has no Permit2 allowance getter", async () => {
     const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
     const from = ctx.account.address;
