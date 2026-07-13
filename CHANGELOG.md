@@ -1,5 +1,28 @@
 # viem-tx-sim
 
+## 0.3.0
+
+### Minor Changes
+
+- [#16](https://github.com/frontier159/viem-tx-sim/pull/16) [`710ab34`](https://github.com/frontier159/viem-tx-sim/commit/710ab344d401ac3e64fb55537438d0ca43ab1213) Thanks [@frontier159](https://github.com/frontier159)! - Add `gas.estimateBatch`: per-call gas measurement for sequential batches via a probe-free ghost entry point, sizing dependent calls (e.g. approve-then-swap) that `eth_estimateGas` cannot measure standalone. Returns pre-buffer suggested limits with EIP-7623-aware intrinsic math — apply your own EIP-150 headroom buffer (2× recommended).
+
+- [#16](https://github.com/frontier159/viem-tx-sim/pull/16) [`710ab34`](https://github.com/frontier159/viem-tx-sim/commit/710ab344d401ac3e64fb55537438d0ca43ab1213) Thanks [@frontier159](https://github.com/frontier159)! - Add opt-in NFT capture. Pass `nftQueries` (ERC-721/1155 collection addresses) to `simulate` and read the new `nftReceipts` (`NftReceipt[]`, exported) on both result variants to see which token ids `from` received during simulation — via receiver hooks (safe transfers / `_safeMint`) and an ERC-721 Enumerable walk (plain `_mint` on Enumerable collections such as Uniswap V3 positions), with best-effort post-state `tokenUri`/`uri` metadata under a gas budget. Duplicate `(collection, tokenId)` receipts are aggregated. Omitting `nftQueries` is behaviour-identical to before (empty `nftReceipts`, no added cost, still one `eth_call`). The ghost contract now compiles with `viaIR` (required for the extended return struct; also shrinks the runtime bytecode).
+
+- [#16](https://github.com/frontier159/viem-tx-sim/pull/16) [`710ab34`](https://github.com/frontier159/viem-tx-sim/commit/710ab344d401ac3e64fb55537438d0ca43ab1213) Thanks [@frontier159](https://github.com/frontier159)! - Add Permit2 support. `tokenOverrides.forPermit2Allowances` prepares sentinel-verified, nonce-preserving overrides for Permit2's internal `allowance(owner, token, spender)` mapping, so Permit2-routed paths (Universal Router, 0x) can be simulated under forged approvals. `estimateRequirements` now also forges and measures those allowances, reporting them as `permit2Allowances` (with `unresolved.permit2Slots` / `unresolved.permit2Allowances`); paths that never touch Permit2 are unchanged.
+
+- [#16](https://github.com/frontier159/viem-tx-sim/pull/16) [`710ab34`](https://github.com/frontier159/viem-tx-sim/commit/710ab344d401ac3e64fb55537438d0ca43ab1213) Thanks [@frontier159](https://github.com/frontier159)! - `OVERRIDE_TOKEN_AMOUNT` is now `10^45` (previously `10^50`): still non-max so ERC-20 and Permit2 allowance decrements stay observable, now also below `type(uint160).max` so the same sentinel forges Permit2's packed uint160 amount, with additional headroom under ray-style fixed-point math.
+
+### Patch Changes
+
+- [#16](https://github.com/frontier159/viem-tx-sim/pull/16) [`710ab34`](https://github.com/frontier159/viem-tx-sim/commit/710ab344d401ac3e64fb55537438d0ca43ab1213) Thanks [@frontier159](https://github.com/frontier159)! - Robustness and RPC hardening:
+
+  - The ghost contract's `balanceOf`/`allowance`/probe staticcalls are gas-capped (150k) and copy at most 32 bytes of returndata, so a hostile or gas-burning token degrades to `unresolved` instead of out-of-gassing or memory-bombing the whole simulation `eth_call`.
+  - `from`/`to` are checksum-normalized on every `eth_call` and `eth_createAccessList`, so lowercase caller addresses no longer draw `-32602` from casing-sensitive RPC proxies.
+  - `eth_createAccessList` defaults to 10M gas (new exported `ACCESS_LIST_GAS_LIMIT`) and sends explicitly supplied gas verbatim; `eth_call` gas is unchanged.
+  - The ghost answers ERC-165 `supportsInterface` for the receiver interfaces it implements, so safe-transfer flows that pre-check receiver support no longer false-revert during simulation.
+  - `balanceQueries.forUser`/`discoverErc20s` degrade to direct call-target candidates when the provider rejects `eth_createAccessList` for an unfunded `from`, instead of throwing `AccessListUnsupportedError`.
+  - Override preparation (`tokenOverrides.forBalances`/`forAllowances`/`forPermit2Allowances`) throws typed `AccessListUnsupportedError`/`StateOverrideUnsupportedError` on provider/infrastructure failures instead of silently reporting every token as `unresolved`; reverting reads still resolve to `unresolved`.
+
 ## 0.2.3
 
 ### Patch Changes
