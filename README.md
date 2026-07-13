@@ -107,11 +107,35 @@ Transaction reverts are results. Infrastructure and invalid-input failures throw
 
 RPC providers and contracts control parts of error messages and `revertReason`. Treat that text as untrusted before rendering it in a UI.
 
+## Batch gas estimation
+
+`gas.estimateBatch()` measures per-call execution gas for a sequential batch in one `eth_call` (zero access lists). Dependent non-atomic legs — the canonical approve-then-swap — cannot be `eth_estimateGas`-ed standalone, because the second leg reverts without the first leg's state. The ghost runs the batch sequentially in one frame through a probe-free entry point and returns each call's gas.
+
+```ts
+const estimate = await simulator.gas.estimateBatch({
+  from,
+  calls: [approveCall, swapCall],
+  // Prepare with tokenOverrides.* first — an unfunded account can't measure a swap.
+  tokenSlotOverrides,
+});
+// estimate.byCall[i] = { executionGas, intrinsicAndCalldataGas, suggestedLimit }
+// estimate.failingCallIndex is null on success, or the index of the first reverting call.
+```
+
+Each `suggestedLimit` is `executionGas + intrinsicAndCalldataGas` and is **pre-buffer**. Apply your own EIP-150 headroom before using it as a per-leg `gas` limit — **2× is recommended**. EIP-150's 63/64 gas-forwarding rule means a limit that merely equals raw consumption can run out of gas at the innermost frame of a deep call tree, because each `CALL` forwards only 63/64 of remaining gas. The library returns a pre-buffer value and leaves the multiplier as a product decision: a wallet that re-estimates at broadcast can use a tighter factor.
+
+Two error bars apply, and both should be documented to consumers:
+
+- **State drift between simulation and broadcast.** Non-atomic 5792 legs broadcast as separate transactions across potentially several blocks; pools move, storage changes, and the gas a leg actually costs at broadcast can differ from the simulated value. The direction is unpredictable; the buffer absorbs modest drift, large drift needs re-estimation.
+- **Warm/cold access divergence (known direction).** The sequential simulation runs all calls in one frame, so call 2 sees storage and accounts that call 1 already warmed (EIP-2929: 100 gas warm vs 2100 cold SLOAD, 100 vs 2600 for account access). When the same legs broadcast as *separate* transactions, each real transaction starts with cold state. The sequential simulation therefore **systematically under-measures** the gas of later calls that reuse earlier calls' warmed slots — the real cold-start transaction costs more. This compounds with the EIP-150 dilution in the same direction, a second reason the buffer should be generous. (For an *atomic* batch executed as one transaction the warming is real and the measurement is accurate — the divergence is specifically a non-atomic, separate-broadcast artifact.)
+
 ## Limitations
 
 - A simulation reads one RPC state snapshot. Pending transactions, later blocks, and builder behavior can change the outcome before the signed transaction lands.
-- `balanceQueries.forUser()` derives candidates from `eth_createAccessList`. If the RPC provider returns a revert without an access list, the helper may miss addresses touched later in the call. Supply balance queries when you know the assets.
+- `balanceQueries.forUser()` derives candidates from `eth_createAccessList`. If the RPC provider returns a revert without an access list, the helper may miss addresses touched later in the call. Supply balance queries when you know the assets. When the provider rejects the access list because `from` cannot fund the calls, discovery degrades to the direct call targets rather than throwing (direct transfers still discovered; intermediary tokens may be missed).
+- Permit2 measurement in `tokenOverrides.estimateRequirements()` depends on the Permit2 singleton being in the discovered candidate set. When discovery degrades to direct call targets (unfunded `from`, above), a Permit2 singleton reached only through inner calls is not a candidate, so its requirements are silently unmeasured. Fund `from`, or include a direct Permit2 call in the batch, to restore measurement.
 - Balance queries read native balances or `balanceOf(address)`. The library does not model token-ID ownership or ERC-1155 balances by ID.
+- NFT capture (`nftQueries`) reports ERC-721/1155 tokens **received** by `from` during simulation — via receiver callbacks (safe transfers, `_safeMint`) and an ERC-721 Enumerable walk (plain `_mint` on Enumerable collections such as Uniswap V3 positions). It does **not** detect: NFTs *sent* by `from`; counter-based mints that are neither safe nor Enumerable (e.g. Uniswap V4 positions — planned); plain-`_mint` non-Enumerable ERC-721s; or general ERC-1155 balances. When a batch both receives *and* sends tokens of the same plain-`_mint` Enumerable collection, the swap-and-pop reindexing an ERC-721 Enumerable transfer performs can move a newly received token below the walk's index window, under-reporting it (receipts recorded via safe-mint/safe-transfer receiver hooks are unaffected). Captured `tokenUri` reflects **post-simulation** state and is best-effort under a gas budget — heavy on-chain renderers may return undefined.
 - Injecting code at `from` changes code-size and account-type checks. The ghost contract handles ERC-1271 and common NFT receiver flows. Contracts with other EOA-versus-contract branches may choose another path during simulation.
 - Storage overrides require a verified balance or allowance slot. The helper puts non-standard or indirect layouts in `unresolved` and leaves their state unchanged.
 - Supply signed permit calldata. Your application creates and signs permits.
@@ -126,6 +150,7 @@ To pin a multi-step workflow, pass the same fixed `blockNumber` to every discove
 - `balanceQueries.forUser()` and `balanceQueries.discoverErc20s()`
 - `tokenOverrides.forBalances()` and `tokenOverrides.forAllowances()`
 - `tokenOverrides.estimateRequirements()`
+- `gas.estimateBatch()`
 - `DEFAULT_SIMULATION_GAS_LIMIT` and `OVERRIDE_TOKEN_AMOUNT`
 
 The package exports its public argument/result types and typed error classes. TypeScript declarations are the detailed reference.

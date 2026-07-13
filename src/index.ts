@@ -1,4 +1,8 @@
-export { DEFAULT_SIMULATION_GAS_LIMIT, OVERRIDE_TOKEN_AMOUNT } from "./constants.js";
+export {
+  ACCESS_LIST_GAS_LIMIT,
+  DEFAULT_SIMULATION_GAS_LIMIT,
+  OVERRIDE_TOKEN_AMOUNT,
+} from "./constants.js";
 export { TxSimulator } from "./txSimulator.js";
 export {
   AccessListUnsupportedError,
@@ -10,11 +14,16 @@ export type {
   AllowanceSlot,
   BalanceDelta,
   BalanceQuery,
+  BatchGasCallEstimate,
+  BatchGasEstimate,
+  EstimateBatchGasArgs,
   NativeBalanceOverride,
   PreparedAllowanceOverrides,
+  PreparedPermit2Overrides,
   AllowanceSlotPair,
   PreparedBalanceOverrides,
   ForUserBalanceQueriesArgs,
+  ForPermit2AllowancesArgs,
   PrepareAllowanceOverridesArgs,
   PrepareBalanceOverridesArgs,
   EstimatedAssetRequirements,
@@ -26,6 +35,7 @@ export type {
   SimulationDebug,
   SimulationDebugEvent,
   SimulationDebugLogger,
+  NftReceipt,
   RequiredAllowance,
   RequiredBalance,
   RevertError,

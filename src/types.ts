@@ -120,10 +120,44 @@ export type PreparedAllowanceOverrides = {
   unresolved: AllowanceSlotPair[];
 };
 
+/**
+ * Prepared Permit2 internal-allowance overrides.
+ *
+ * WARNING: unlike ERC-20 overrides, each `slots[i].token` is the **Permit2 contract address** — the
+ * account whose storage is overridden — not the ERC-20. The ERC-20 for each override lives in the
+ * index-aligned `pairs[i].token`. Spread `slots` into `simulate({ tokenSlotOverrides })` unchanged.
+ */
+export type PreparedPermit2Overrides = {
+  /** Verified packed-slot overrides; `slots[i]` corresponds to `pairs[i]`. Its `token` is the Permit2 address. */
+  slots: TokenSlotOverride[];
+  /** Token/spender pairs that resolved, index-aligned with `slots`. */
+  pairs: AllowanceSlotPair[];
+  /** Pairs whose Permit2 allowance slot could not be sentinel-verified. */
+  unresolved: AllowanceSlotPair[];
+};
+
 /** ABI-decoded revert error, present when revertData matches supplied error definitions or a built-in Error/Panic. */
 export type RevertError = {
   name: string;
   args: readonly unknown[];
+};
+
+/** One NFT received by `from` during simulation, aggregated per `(collection, tokenId)`. */
+export type NftReceipt = {
+  /** ERC-721/1155 collection contract that transferred the token. */
+  collection: Address;
+  /** Received token id. */
+  tokenId: bigint;
+  /** 1 for ERC-721; the transferred value for ERC-1155. */
+  amount: bigint;
+  /** Token standard inferred from the capture path. */
+  standard: "erc721" | "erc1155";
+  /**
+   * Decoded post-simulation `tokenURI(id)` / `uri(id)`, typically a `data:application/json;base64,...`
+   * URI. Best-effort under a gas budget; absent when capture failed, was off, or returned malformed
+   * data. Reflects state at the simulation halt point.
+   */
+  tokenUri?: string;
 };
 
 /** Arguments for `TxSimulator.simulate`. */
@@ -144,6 +178,11 @@ export type SimulateArgs = SimulationOptions & {
    * Query forged accounts if you want to observe them.
    */
   nativeBalanceOverrides?: readonly NativeBalanceOverride[];
+  /**
+   * ERC-721/1155 collections to watch for tokens received by `from` during simulation. Omit or pass
+   * `[]` to skip NFT capture entirely (zero added cost). Received tokens surface in `nftReceipts`.
+   */
+  nftQueries?: readonly Address[];
   /** Additional error definitions for decoding this call's reverts; merged after the bound errorAbi. */
   errorAbi?: Abi;
 };
@@ -172,14 +211,72 @@ export type PrepareAllowanceOverridesArgs = SimulationOptions & {
   pairs: readonly AllowanceSlotPair[];
 };
 
+/** Arguments for `TxSimulator.tokenOverrides.forPermit2Allowances`. */
+export type ForPermit2AllowancesArgs = SimulationOptions & {
+  /** Owner account whose Permit2 internal allowances should be forged. */
+  from: Address;
+  /** Token/spender pairs to prepare Permit2 allowance overrides for. */
+  pairs: readonly AllowanceSlotPair[];
+  /** Permit2 singleton address; defaults to the canonical `0x0000...78BA3`. */
+  permit2Address?: Address;
+};
+
 /** Arguments for `TxSimulator.tokenOverrides.estimateRequirements`. */
 export type EstimateAssetRequirementsArgs = SimulationOptions & {
   /** Account whose balance and approval needs should be estimated. */
   from: Address;
   /** One call or an ERC-5792-style sequential batch. Must contain at least one call. */
   calls: readonly SimulatedCall[];
+  /**
+   * Permit2 singleton address; defaults to the canonical `0x0000...78BA3`. Permit2 measurement only
+   * engages when this address is actually touched by the batch, so overriding it costs nothing on
+   * paths that never route through Permit2.
+   */
+  permit2Address?: Address;
   /** Additional error definitions for decoding this call's reverts; merged after the bound errorAbi. */
   errorAbi?: Abi;
+};
+
+/** Arguments for `TxSimulator.gas.estimateBatch`. */
+export type EstimateBatchGasArgs = SimulationOptions & {
+  /** Account being simulated; the ghost simulator bytecode is injected at this address. */
+  from: Address;
+  /** One call or an ERC-5792-style sequential batch. Must contain at least one call. */
+  calls: readonly SimulatedCall[];
+  /**
+   * Storage-slot overrides applied before measuring. Prepare with `tokenOverrides.*`: an unfunded
+   * account cannot measure a swap, so forge the balances/allowances the batch needs first.
+   */
+  tokenSlotOverrides?: readonly TokenSlotOverride[];
+  /** Native balance overrides applied before measuring. Duplicate accounts use the last amount. */
+  nativeBalanceOverrides?: readonly NativeBalanceOverride[];
+};
+
+/** Per-call gas breakdown from `gas.estimateBatch`, index-aligned with `calls`. */
+export type BatchGasCallEstimate = {
+  /** Execution gas measured by the ghost (`gasleft()` delta around the call). */
+  executionGas: bigint;
+  /** Intrinsic (21000) + calldata gas under the EIP-7623 floor, computed off-chain. */
+  intrinsicAndCalldataGas: bigint;
+  /**
+   * `executionGas + intrinsicAndCalldataGas`, **pre-buffer**. Apply your own EIP-150 headroom
+   * (2× recommended) before using it as a per-leg `gas` limit; the library does not bake it in.
+   */
+  suggestedLimit: bigint;
+};
+
+/**
+ * Result of `gas.estimateBatch`. `byCall` is index-aligned with `calls`; on a revert, entries from
+ * `failingCallIndex` onward have all three fields `0n` (the same zero-tail convention `simulate` uses),
+ * because gas measured for calls after a failing one ran against state the real chain never reaches.
+ */
+export type BatchGasEstimate = {
+  /** Per-call gas breakdown, index-aligned with `calls`. */
+  byCall: BatchGasCallEstimate[];
+  /** Sum of per-call `suggestedLimit`s (still pre-buffer). */
+  totalSuggestedLimit: bigint;
+  /** Zero-based index of the first reverting call, or `null` when every call succeeded. */
+  failingCallIndex: number | null;
 };
 
 /** Configuration for `TxSimulator.create`. */
@@ -213,6 +310,12 @@ type EstimatedAssetRequirementsBase = {
   balances: RequiredBalance[];
   /** Minimum allowances needed before the batch, excluding allowances set inside the batch. */
   allowances: RequiredAllowance[];
+  /**
+   * Minimum Permit2 internal allowances needed per (token, spender), excluding grants made inside the
+   * batch. Empty on paths that never touch Permit2. Batch-permit (`PermitBatch`) grants are not
+   * detected, so such a batch may over-report here.
+   */
+  permit2Allowances: RequiredAllowance[];
   /** Verified slots prepared along the way; pass to `simulate` as `tokenSlotOverrides`. */
   slots: TokenSlotOverride[];
   /** Values the estimator could not verify or could not trust. */
@@ -226,6 +329,10 @@ type EstimatedAssetRequirementsBase = {
     allowanceSlots: AllowanceSlotPair[];
     /** Token/spender pairs measured but discarded as unreliable, usually because they exceeded gross outflow. */
     allowances: AllowanceSlotPair[];
+    /** Token/spender pairs whose Permit2 internal-allowance slot could not be sentinel-verified. */
+    permit2Slots: AllowanceSlotPair[];
+    /** Token/spender pairs whose Permit2 allowance was measured but discarded as unreliable. */
+    permit2Allowances: AllowanceSlotPair[];
   };
 };
 
@@ -261,6 +368,11 @@ export type SimulationSuccess = {
   balanceDeltas: BalanceDelta[];
   /** Queries that could not be read, usually because an ERC-20 `balanceOf` staticcall failed. */
   unresolved: BalanceQuery[];
+  /**
+   * NFTs received by `from` during simulation, one entry per `(collection, tokenId)`. Empty unless
+   * `nftQueries` was supplied. Order is deterministic: receipt order first, then Enumerable-walk order.
+   */
+  nftReceipts: NftReceipt[];
 };
 
 /** Simulation result for a transaction revert; infrastructure failures throw typed errors instead. */
@@ -270,6 +382,11 @@ export type SimulationReverted = {
   balanceDeltas: BalanceDelta[];
   /** Queries that could not be read, usually because an ERC-20 `balanceOf` staticcall failed. */
   unresolved: BalanceQuery[];
+  /**
+   * NFTs received by `from` before the batch halted, one entry per `(collection, tokenId)`. Empty
+   * unless `nftQueries` was supplied. Order is deterministic: receipt order first, then walk order.
+   */
+  nftReceipts: NftReceipt[];
   /** Raw EVM revert data from the failing simulated call. */
   revertData: Hex;
   /** Human-readable decoded revert; present when revertData decodes via supplied error definitions or as built-in Error/Panic. */

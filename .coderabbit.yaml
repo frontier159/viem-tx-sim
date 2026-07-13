@@ -1,0 +1,5 @@
+# CodeRabbit configuration — https://docs.coderabbit.ai/getting-started/configure-coderabbit
+reviews:
+  path_filters:
+    # The plans/ directory is an internal advisor/executor working ledger, not shipped code.
+    - "!plans/**"

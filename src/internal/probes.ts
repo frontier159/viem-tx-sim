@@ -1,10 +1,11 @@
 import type { Address, Hex, StateOverride } from "viem";
 import { encodeFunctionData, erc20Abi } from "viem";
 
+import { StateOverrideUnsupportedError } from "../errors.js";
 import { addressKey } from "./data.js";
 import { DEBUG_STEPS } from "./debugSteps.js";
 import type { DebugStep } from "./debugSteps.js";
-import { withRpcDebug } from "./rpc.js";
+import { formatRpcError, isExecutionRevert, withRpcDebug } from "./rpc.js";
 import { getCallData, uint256Hex } from "./data.js";
 import type { RpcCallArgs } from "./rpc.js";
 import { blockOptionsSpread, buildCallParameters, createAccessList } from "./rpc.js";
@@ -55,24 +56,20 @@ async function discoverSlot(
     steps: { accessList: DebugStep; verify: DebugStep };
   },
 ): Promise<Hex | undefined> {
-  let storageKeys: Hex[];
-  try {
-    const accessList = await createAccessList({
-      client: args.client,
-      from: args.owner,
-      to: args.token,
-      data: args.data,
-      gas: args.gas,
-      debug: args.debug,
-      debugStep: args.steps.accessList,
-      ...blockOptionsSpread(args),
-    });
-    storageKeys = accessList
-      .filter((entry) => addressKey(entry.address) === addressKey(args.token))
-      .flatMap((entry) => entry.storageKeys);
-  } catch {
-    return undefined;
-  }
+  const accessList = await createAccessList({
+    client: args.client,
+    from: args.owner,
+    to: args.token,
+    data: args.data,
+    gas: args.gas,
+    accessListGas: args.accessListGas,
+    debug: args.debug,
+    debugStep: args.steps.accessList,
+    ...blockOptionsSpread(args),
+  });
+  const storageKeys = accessList
+    .filter((entry) => addressKey(entry.address) === addressKey(args.token))
+    .flatMap((entry) => entry.storageKeys);
 
   const sentinelHex = uint256Hex(args.sentinel);
   for (const slot of storageKeys) {
@@ -175,7 +172,11 @@ async function readUint256Call(
     const data = getCallData(result);
     if (data.length < 66) return undefined;
     return BigInt(data.slice(0, 66));
-  } catch {
-    return undefined;
+  } catch (cause) {
+    // A reverting read is a non-standard token (unresolved); anything else is infrastructure.
+    if (isExecutionRevert(cause)) return undefined;
+    throw new StateOverrideUnsupportedError(
+      formatRpcError("eth_call during override preparation failed", cause),
+    );
   }
 }

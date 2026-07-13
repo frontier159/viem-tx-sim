@@ -90,24 +90,35 @@ describe("TxSimulator", () => {
         calls: [{ to: "0x0000000000000000000000000000000000000def", data: "0x" }],
         balanceQueries: [],
       }),
-    ).resolves.toEqual({ status: "success", balanceDeltas: [], unresolved: [] });
+    ).resolves.toEqual({ status: "success", balanceDeltas: [], unresolved: [], nftReceipts: [] });
   });
 });
 
 const fake: TxSimulator = {
-  simulate: async () => ({ status: "success", balanceDeltas: [], unresolved: [] }),
+  simulate: async () => ({ status: "success", balanceDeltas: [], unresolved: [], nftReceipts: [] }),
   balanceQueries: { forUser: async () => [], discoverErc20s: async () => [] },
   tokenOverrides: {
     forBalances: async () => ({ slots: [], unresolved: [] }),
     forAllowances: async () => ({ slots: [], unresolved: [] }),
+    forPermit2Allowances: async () => ({ slots: [], pairs: [], unresolved: [] }),
     estimateRequirements: async () => ({
       status: "success",
       native: 0n,
       balances: [],
       allowances: [],
+      permit2Allowances: [],
       slots: [],
-      unresolved: { balanceSlots: [], allowanceSlots: [], allowances: [] },
+      unresolved: {
+        balanceSlots: [],
+        allowanceSlots: [],
+        allowances: [],
+        permit2Slots: [],
+        permit2Allowances: [],
+      },
     }),
+  },
+  gas: {
+    estimateBatch: async () => ({ byCall: [], totalSuggestedLimit: 0n, failingCallIndex: null }),
   },
 };
 

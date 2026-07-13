@@ -12,6 +12,9 @@ export const DEBUG_STEPS = {
   allowanceSlotAccessList: "allowanceSlot.accessList",
   allowanceSlotVerify: "allowanceSlot.verify",
   allowanceSlotComputedVerify: "allowanceSlot.computedVerify",
+  permit2AllowanceRead: "permit2Allowance.read",
+  permit2AllowanceVerify: "permit2Allowance.verify",
+  gasEstimateBatch: "gas.estimateBatch",
 } as const;
 
 export type DebugStep = (typeof DEBUG_STEPS)[keyof typeof DEBUG_STEPS];

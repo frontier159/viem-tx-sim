@@ -39,6 +39,17 @@ type ProbeData = {
   allowanceCheckpoints: readonly bigint[];
   balanceCheckpoints: readonly bigint[];
   balanceProbeOk: readonly boolean[];
+  permit2Checkpoints: readonly bigint[];
+  nftReceipts: readonly RawNftReceipt[];
+};
+
+/** Ghost-contract `NftReceipt` as decoded from returndata; `tokenUriRaw` is decoded TS-side. */
+export type RawNftReceipt = {
+  collection: Address;
+  tokenId: bigint;
+  amount: bigint;
+  erc1155: boolean;
+  tokenUriRaw: Hex;
 };
 
 type SimulatorBase = {
@@ -61,8 +72,10 @@ export const txSimulatorAbi = parseAbi([
   "struct SimulatedCall { address to; uint256 value; bytes data; }",
   "struct AllowanceProbe { address token; address spender; }",
   "struct BalanceProbe { address token; address account; }",
-  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; address[] observedTokens; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; uint256[] balanceCheckpoints; bool[] balanceProbeOk; }",
-  "function simulate(SimulatedCall[] calls, address[] candidates, AllowanceProbe[] probes, BalanceProbe[] balanceProbes) returns (SimulationResult)",
+  "struct NftReceipt { address collection; uint256 tokenId; uint256 amount; bool erc1155; bytes tokenUriRaw; }",
+  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; address[] observedTokens; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; uint256[] balanceCheckpoints; bool[] balanceProbeOk; uint256[] permit2Checkpoints; NftReceipt[] nftReceipts; }",
+  "function simulate(SimulatedCall[] calls, address[] candidates, AllowanceProbe[] probes, BalanceProbe[] balanceProbes, address permit2, AllowanceProbe[] permit2Probes, address[] nftCollections) returns (SimulationResult)",
+  "function simulateBatchGas(SimulatedCall[] calls) returns (bool allSuccess, uint256 failingCallIndex, uint256[] execGasPerCall)",
   "function isValidSignature(bytes32 hash, bytes signature) view returns (bytes4)",
 ]);
 
@@ -75,6 +88,9 @@ export async function runSimulator(
     extraStateOverrides?: readonly StateOverrideEntry[];
     allowanceProbes?: readonly { token: Address; spender: Address }[];
     balanceProbes?: readonly { token: Address | "native"; account: Address }[];
+    permit2?: Address;
+    permit2Probes?: readonly { token: Address; spender: Address }[];
+    nftCollections?: readonly Address[];
     debugStep?: DebugStep;
     errorAbi?: Abi;
   },
@@ -96,6 +112,9 @@ export async function runSimulator(
       candidates,
       args.allowanceProbes ?? [],
       balanceProbes,
+      args.permit2 ?? zeroAddress,
+      args.permit2Probes ?? [],
+      args.nftCollections ?? [],
     ],
   });
 
@@ -161,6 +180,8 @@ export async function runSimulator(
     allowanceCheckpoints: result.allowanceCheckpoints,
     balanceCheckpoints: result.balanceCheckpoints,
     balanceProbeOk: result.balanceProbeOk,
+    permit2Checkpoints: result.permit2Checkpoints,
+    nftReceipts: result.nftReceipts,
   };
 
   if (!result.success) {
@@ -188,6 +209,102 @@ export async function runSimulator(
   };
 }
 
+export type BatchGasResult = {
+  /** True when every call executed without reverting. */
+  allSuccess: boolean;
+  /** Zero-based index of the first reverting call, or `null` when `allSuccess`. */
+  failingCallIndex: number | null;
+  /** Per-call execution gas (contract `gasleft()` deltas); zero-filled from the failing call onward. */
+  execGasPerCall: readonly bigint[];
+};
+
+/**
+ * Probe-free per-call gas measurement. Mirrors {@link runSimulator}'s state-override assembly (ghost
+ * code at `from`, token-slot and native-balance overrides) and single `eth_call`, but calls the ghost's
+ * `simulateBatchGas` entry point, which measures `gasleft()` deltas around a bare `_executeCall` loop.
+ * Infrastructure/undecodable failures throw {@link StateOverrideUnsupportedError}; transaction reverts
+ * are reported via `allSuccess`/`failingCallIndex`, not thrown.
+ */
+export async function runBatchGas(
+  args: RpcCallArgs & {
+    from: Address;
+    calls: readonly SimulatedCall[];
+    tokenSlotOverrides?: readonly TokenSlotOverride[];
+    extraStateOverrides?: readonly StateOverrideEntry[];
+  },
+): Promise<BatchGasResult> {
+  const data = encodeFunctionData({
+    abi: txSimulatorAbi,
+    functionName: "simulateBatchGas",
+    args: [
+      args.calls.map((call) => ({
+        to: call.to,
+        value: call.value ?? 0n,
+        data: call.data,
+      })),
+    ],
+  });
+
+  const stateOverride = buildStateOverride([
+    { address: args.from, code: txSimulatorRuntimeBytecode },
+    ...tokenSlotOverridesToStateDiff(args.tokenSlotOverrides ?? []),
+    ...(args.extraStateOverrides ?? []),
+  ]);
+
+  let callData: Hex;
+  try {
+    const result = await withRpcDebug(
+      args.debug,
+      {
+        method: "eth_call",
+        step: DEBUG_STEPS.gasEstimateBatch,
+        details: {
+          from: args.from,
+          calls: args.calls.length,
+          storageOverrides: args.tokenSlotOverrides?.length ?? 0,
+          stateOverrideAccounts: stateOverride.length,
+        },
+      },
+      () =>
+        args.client.call(
+          buildCallParameters({
+            account: args.from,
+            to: args.from,
+            data,
+            gas: args.gas,
+            stateOverride,
+            ...blockOptionsSpread(args),
+          }),
+        ),
+    );
+    callData = getCallData(result);
+  } catch (cause) {
+    throw new StateOverrideUnsupportedError(
+      formatRpcError("eth_call with state override failed", cause),
+    );
+  }
+
+  let decoded;
+  try {
+    decoded = decodeFunctionResult({
+      abi: txSimulatorAbi,
+      functionName: "simulateBatchGas",
+      data: callData,
+    });
+  } catch (cause) {
+    throw new StateOverrideUnsupportedError(
+      formatRpcError("eth_call returned undecodable simulator output", cause),
+    );
+  }
+
+  const [allSuccess, failingCallIndex, execGasPerCall] = decoded;
+  return {
+    allSuccess,
+    failingCallIndex: allSuccess ? null : Number(failingCallIndex),
+    execGasPerCall,
+  };
+}
+
 export async function discoverCandidateAddresses(
   args: RpcCallArgs & {
     from: Address;
@@ -203,6 +320,7 @@ export async function discoverCandidateAddresses(
         data: call.data,
         value: call.value ?? 0n,
         gas: args.gas,
+        accessListGas: args.accessListGas,
         debug: args.debug,
         debugStep: DEBUG_STEPS.candidateDiscoveryAccessList,
         ...blockOptionsSpread(args),

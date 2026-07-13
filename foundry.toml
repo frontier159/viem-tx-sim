@@ -5,4 +5,11 @@ cache_path = "cache"
 solc_version = "0.8.24"
 optimizer = true
 optimizer_runs = 200
+# viaIR is required by `simulate()`'s 7-parameter calldata DECODER, not by the return struct. The
+# signature's 6 dynamic arrays + 1 address overflow the EVM's 16-slot reach in the compiler-generated
+# ABI-decoding prologue ("Variable dataEnd is 1 slot too deep") — a body-independent failure no
+# refactor can fix while the signature stands. viaIR also shrinks the runtime bytecode (~24% vs
+# legacy). Behaviour is identical — tests pin RPC/observation semantics, not bytecode bytes. Full
+# rationale: docs/txsimulator-complexity-review-2026-07-13.md.
+via_ir = true
 evm_version = "cancun"

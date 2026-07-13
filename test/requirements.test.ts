@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { encodeFunctionData, getAddress, parseAbi, parseEther, zeroHash } from "viem";
+import { encodeFunctionData, getAddress, maxUint48, parseAbi, parseEther, zeroHash } from "viem";
 
 import { TxSimulator, type SimulationDebugEvent } from "../src/index.js";
 import { deploy, write } from "./helpers/contracts.js";
@@ -39,10 +39,13 @@ describe("tokenOverrides.estimateRequirements", () => {
       spender: vault.address,
       amount: 500n,
     });
+    expect(requirements.permit2Allowances).toEqual([]);
     expect(requirements.unresolved).toEqual({
       balanceSlots: [],
       allowanceSlots: [],
       allowances: [],
+      permit2Slots: [],
+      permit2Allowances: [],
     });
   });
 
@@ -324,6 +327,8 @@ describe("tokenOverrides.estimateRequirements", () => {
       balanceSlots: [],
       allowanceSlots: [],
       allowances: [],
+      permit2Slots: [],
+      permit2Allowances: [],
     });
   });
 
@@ -350,5 +355,108 @@ describe("tokenOverrides.estimateRequirements", () => {
 
     expect(requirements.status).toBe("success");
     expect(requirements.native).toBe(value);
+  });
+
+  it("measures a Permit2-routed pull's internal allowance requirement", async () => {
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const permit2 = await deploy(ctx, "MockPermit2.sol", "MockPermit2");
+    const router = await deploy(ctx, "Permit2Router.sol", "Permit2Router");
+    const from = ctx.account.address;
+    // Discovery reaches TestToken only if the cold pull gets past Permit2's expiration/amount checks
+    // into token.transferFrom (which still reverts on the unfunded account, but touches the token).
+    await write(ctx, permit2, "approve", [token.address, router.address, 1_000n, maxUint48]);
+    const pull = encodeFunctionData({
+      abi: router.abi,
+      functionName: "pull",
+      args: [permit2.address, token.address, from, 500n],
+    });
+
+    const requirements = await sim.tokenOverrides.estimateRequirements({
+      from,
+      calls: [{ to: router.address, data: pull }],
+      permit2Address: permit2.address,
+    });
+
+    expect(requirements.status).toBe("success");
+    // All three legs forged: ERC-20 balance, ERC-20→Permit2 approval, and the Permit2 internal allowance.
+    expect(requirements.balances).toContainEqual({ token: token.address, amount: 500n });
+    expect(requirements.allowances).toContainEqual({
+      token: token.address,
+      spender: permit2.address,
+      amount: 500n,
+    });
+    expect(requirements.permit2Allowances).toEqual([
+      { token: token.address, spender: router.address, amount: 500n },
+    ]);
+    expect(requirements.unresolved.permit2Slots).toEqual([]);
+    expect(requirements.unresolved.permit2Allowances).toEqual([]);
+  });
+
+  it("excludes a Permit2 allowance granted inside the batch", async () => {
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const permit2 = await deploy(ctx, "MockPermit2.sol", "MockPermit2");
+    const router = await deploy(ctx, "Permit2Router.sol", "Permit2Router");
+    const from = ctx.account.address;
+    // On-chain grant so per-call discovery reaches the token (the in-batch approve below only takes
+    // effect during the sequential measurement run, not during independent per-call access lists).
+    await write(ctx, permit2, "approve", [token.address, router.address, 1_000n, maxUint48]);
+    const approve = encodeFunctionData({
+      abi: permit2.abi,
+      functionName: "approve",
+      args: [token.address, router.address, 500n, maxUint48],
+    });
+    const pull = encodeFunctionData({
+      abi: router.abi,
+      functionName: "pull",
+      args: [permit2.address, token.address, from, 500n],
+    });
+
+    const requirements = await sim.tokenOverrides.estimateRequirements({
+      from,
+      calls: [
+        { to: permit2.address, data: approve },
+        { to: router.address, data: pull },
+      ],
+      permit2Address: permit2.address,
+    });
+
+    expect(requirements.status).toBe("success");
+    expect(
+      requirements.permit2Allowances.some(
+        (allowance) => allowance.token === token.address && allowance.spender === router.address,
+      ),
+    ).toBe(false);
+  });
+
+  it("reports Permit2 pairs as unresolved when the address is not a Permit2 contract", async () => {
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy(ctx, "Spender.sol", "Spender");
+    const approve = encodeFunctionData({
+      abi: token.abi,
+      functionName: "approve",
+      args: [spender.address, 400n],
+    });
+    const pull = encodeFunctionData({
+      abi: spender.abi,
+      functionName: "pull",
+      args: [token.address, 400n],
+    });
+
+    // TestToken has allowance(address,address), not Permit2's 3-arg getter, so the probe reverts.
+    const requirements = await sim.tokenOverrides.estimateRequirements({
+      from: ctx.account.address,
+      calls: [
+        { to: token.address, data: approve },
+        { to: spender.address, data: pull },
+      ],
+      permit2Address: token.address,
+    });
+
+    expect(requirements.status).toBe("success");
+    expect(requirements.unresolved.permit2Slots).toContainEqual({
+      token: token.address,
+      spender: spender.address,
+    });
+    expect(requirements.permit2Allowances).toEqual([]);
   });
 });

@@ -9,8 +9,10 @@ import type {
 } from "viem";
 import { numberToHex } from "viem";
 
+import { ACCESS_LIST_GAS_LIMIT } from "../constants.js";
 import { AccessListUnsupportedError } from "../errors.js";
 import type { SimulationDebug, SimulationDebugEvent } from "../types.js";
+import { normalizeAddress } from "./data.js";
 import { DEBUG_STEPS } from "./debugSteps.js";
 import type { DebugStep } from "./debugSteps.js";
 
@@ -21,12 +23,20 @@ export type BlockOptions = {
   blockTag?: BlockTag;
 };
 
-/** Attaches the bound viem client to public per-call args for internal implementations. */
-export type ClientArgs = { client: PublicClient };
+/**
+ * Attaches the bound viem client (and internal-only `accessListGas`) to public per-call args for
+ * internal implementations.
+ */
+export type ClientArgs = { client: PublicClient; accessListGas?: bigint };
 
 export type RpcCallArgs = {
   client: PublicClient;
   gas?: bigint;
+  /**
+   * Explicit caller gas for `eth_createAccessList`. When absent the request uses
+   * {@link ACCESS_LIST_GAS_LIMIT}; when present it is sent verbatim (no clamp).
+   */
+  accessListGas?: bigint;
   debug?: SimulationDebug;
 } & BlockOptions;
 
@@ -49,8 +59,8 @@ export function buildCallParameters(
   } & BlockOptions,
 ): CallParameters {
   const base = {
-    account: args.account,
-    to: args.to,
+    account: normalizeAddress(args.account),
+    to: normalizeAddress(args.to),
     data: args.data,
     ...(args.stateOverride !== undefined ? { stateOverride: args.stateOverride } : {}),
     ...(args.gas !== undefined ? { gas: args.gas } : {}),
@@ -85,12 +95,15 @@ export async function createAccessList(
     debugStep?: DebugStep;
   },
 ): Promise<AccessList> {
+  // Walletchan's model: attach a fixed provider-safe default when the caller supplied no gas, and
+  // respect explicit caller gas verbatim (no clamp in either direction).
+  const gas = args.accessListGas ?? ACCESS_LIST_GAS_LIMIT;
   const request = {
-    from: args.from,
-    to: args.to,
+    from: normalizeAddress(args.from),
+    to: normalizeAddress(args.to),
     data: args.data,
     ...(args.value !== undefined ? { value: numberToHex(args.value) } : {}),
-    ...(args.gas !== undefined ? { gas: numberToHex(args.gas) } : {}),
+    gas: numberToHex(gas),
   } satisfies AccessListRpcRequest;
   const block =
     args.blockNumber !== undefined ? numberToHex(args.blockNumber) : (args.blockTag ?? "latest");
@@ -105,7 +118,7 @@ export async function createAccessList(
           from: args.from,
           to: args.to,
           hasValue: (args.value ?? 0n) > 0n,
-          hasGas: args.gas !== undefined,
+          hasGas: true,
         },
       },
       () => requestAccessList(args.client, request, block),
@@ -134,7 +147,7 @@ function hasRevertCode(cause: unknown): boolean {
   return false;
 }
 
-function isExecutionRevert(cause: unknown): boolean {
+export function isExecutionRevert(cause: unknown): boolean {
   if (hasRevertCode(cause)) return true;
   return cause instanceof Error && /revert/i.test(cause.message);
 }
@@ -143,6 +156,12 @@ function isRpcExecutionRevert(error: AccessListRpcResult["error"]): boolean {
   if (hasRevertCode(error)) return true;
   const message = typeof error === "string" ? error : error?.message;
   return message !== undefined && /revert/i.test(message);
+}
+
+// Classifies "the account cannot fund these calls" (account state, not infrastructure): callers may
+// deliberately degrade to direct call targets, unlike other RPC failures which stay typed errors.
+export function isInsufficientFunds(cause: unknown): boolean {
+  return cause instanceof Error && /insufficient (funds|balance)/i.test(cause.message);
 }
 
 async function requestAccessList(

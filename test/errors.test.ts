@@ -74,10 +74,56 @@ describe("error handling", () => {
     await expect(promise).rejects.toThrow(/undecodable/);
   });
 
-  it("omits balance slots when probing fails", async () => {
+  it("rejects forBalances with a typed error on an infrastructure access-list failure", async () => {
     const sim = simulatorFor({
       eth_createAccessList: () => {
-        throw new Error("eth_createAccessList unavailable");
+        throw new Error("connection refused");
+      },
+    });
+
+    await expect(sim.tokenOverrides.forBalances({ from, tokens: [token] })).rejects.toBeInstanceOf(
+      AccessListUnsupportedError,
+    );
+  });
+
+  it("rejects forBalances with a typed error when the sentinel-verify eth_call fails", async () => {
+    const slot = "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex;
+    const sim = simulatorFor({
+      eth_createAccessList: () => ({
+        accessList: [{ address: token, storageKeys: [slot] }],
+        gasUsed: "0x0",
+      }),
+      eth_call: () => {
+        throw new Error("connection refused");
+      },
+    });
+
+    await expect(sim.tokenOverrides.forBalances({ from, tokens: [token] })).rejects.toBeInstanceOf(
+      StateOverrideUnsupportedError,
+    );
+  });
+
+  it("rejects forPermit2Allowances with a typed error when the eth_call fails", async () => {
+    const sim = simulatorFor({
+      eth_call: () => {
+        throw new Error("connection refused");
+      },
+    });
+
+    await expect(
+      sim.tokenOverrides.forPermit2Allowances({ from, pairs: [{ token, spender: to }] }),
+    ).rejects.toBeInstanceOf(StateOverrideUnsupportedError);
+  });
+
+  it("treats a reverting balance-slot read as unresolved rather than throwing (control)", async () => {
+    const slot = "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex;
+    const sim = simulatorFor({
+      eth_createAccessList: () => ({
+        accessList: [{ address: token, storageKeys: [slot] }],
+        gasUsed: "0x0",
+      }),
+      eth_call: () => {
+        throw Object.assign(new Error("execution reverted"), { code: 3 });
       },
     });
 
@@ -194,6 +240,43 @@ describe("error handling", () => {
     ).toBe(true);
   });
 
+  it("degrades discovery to call targets on insufficient-funds access-list rejection", async () => {
+    const events: { method: string; phase: string }[] = [];
+    const sim = simulatorFor({
+      eth_createAccessList: () => {
+        throw new Error("insufficient funds for gas * price + value");
+      },
+      eth_call: () => encodeSimulationResult({ observedTokens: [to] }),
+    });
+
+    await expect(
+      sim.balanceQueries.discoverErc20s({
+        from,
+        calls: [{ to, data: "0x" }],
+        debug: (event) => events.push(event),
+      }),
+    ).resolves.toEqual([to]);
+    expect(
+      events.some((event) => event.method === "eth_createAccessList" && event.phase === "error"),
+    ).toBe(true);
+  });
+
+  it("forUser inherits the insufficient-funds discovery degradation", async () => {
+    const sim = simulatorFor({
+      eth_createAccessList: () => {
+        throw new Error("insufficient funds for gas * price + value");
+      },
+      eth_call: () => encodeSimulationResult({ observedTokens: [to] }),
+    });
+
+    await expect(
+      sim.balanceQueries.forUser({ from, calls: [{ to, data: "0x" }] }),
+    ).resolves.toEqual([
+      { asset: "native", account: from },
+      { asset: to, account: from },
+    ]);
+  });
+
   it("rethrows an infrastructure error from the estimator", async () => {
     const sim = simulatorFor({
       eth_createAccessList: () => {
@@ -254,6 +337,110 @@ describe("error handling", () => {
     }
 
     expect(logged).toContain("txSimulator.simulate");
+  });
+
+  it("checksum-normalizes from/to and override keys in the outgoing eth_call", async () => {
+    const lowerFrom = from.toLowerCase() as typeof from;
+    let params: unknown;
+    const sim = simulatorFor({
+      eth_call: (captured) => {
+        params = captured;
+        return encodeSimulationResult();
+      },
+    });
+
+    await sim.simulate({
+      from: lowerFrom,
+      calls: [{ to: lowerFrom, data: "0x" }],
+      balanceQueries: [{ asset: "native", account: lowerFrom }],
+    });
+
+    const [tx, , stateOverride] = params as [
+      { from: string; to: string },
+      unknown,
+      Record<string, unknown>,
+    ];
+    expect(tx.from).toBe(from);
+    expect(tx.to).toBe(from);
+    for (const key of Object.keys(stateOverride)) {
+      expect(key).toBe(getAddress(key));
+    }
+  });
+
+  it("checksum-normalizes from/to in the outgoing eth_createAccessList", async () => {
+    const lowerFrom = from.toLowerCase() as typeof from;
+    const lowerTo = to.toLowerCase() as typeof to;
+    let params: unknown;
+    const sim = simulatorFor({
+      eth_createAccessList: (captured) => {
+        params = captured;
+        return { accessList: [] };
+      },
+      eth_call: () => encodeSimulationResult(),
+    });
+
+    await sim.balanceQueries.discoverErc20s({
+      from: lowerFrom,
+      calls: [{ to: lowerTo, data: "0x" }],
+    });
+
+    const [request] = params as [{ from: string; to: string }];
+    expect(request.from).toBe(from);
+    expect(request.to).toBe(to);
+  });
+
+  it("clamps the default simulation gas to the access-list ceiling on the wire", async () => {
+    let params: unknown;
+    const sim = simulatorFor({
+      eth_createAccessList: (captured) => {
+        params = captured;
+        return { accessList: [] };
+      },
+      eth_call: () => encodeSimulationResult(),
+    });
+
+    await sim.balanceQueries.discoverErc20s({ from, calls: [{ to, data: "0x" }] });
+
+    const [request] = params as [{ gas: string }];
+    expect(request.gas).toBe("0x989680"); // 10,000,000
+  });
+
+  it("passes an explicit sub-ceiling gas through to eth_createAccessList unchanged", async () => {
+    let params: unknown;
+    const sim = TxSimulator.create({
+      client: fakeClient({
+        eth_createAccessList: (captured) => {
+          params = captured;
+          return { accessList: [] };
+        },
+        eth_call: () => encodeSimulationResult(),
+      }),
+      gas: 5_000_000n,
+    });
+
+    await sim.balanceQueries.discoverErc20s({ from, calls: [{ to, data: "0x" }] });
+
+    const [request] = params as [{ gas: string }];
+    expect(request.gas).toBe("0x4c4b40"); // 5,000,000
+  });
+
+  it("passes explicit above-10M gas through to eth_createAccessList verbatim", async () => {
+    let params: unknown;
+    const sim = TxSimulator.create({
+      client: fakeClient({
+        eth_createAccessList: (captured) => {
+          params = captured;
+          return { accessList: [] };
+        },
+        eth_call: () => encodeSimulationResult(),
+      }),
+      gas: 16_000_000n,
+    });
+
+    await sim.balanceQueries.discoverErc20s({ from, calls: [{ to, data: "0x" }] });
+
+    const [request] = params as [{ gas: string }];
+    expect(request.gas).toBe("0xf42400"); // 16,000,000 — verbatim, no clamp to 10M
   });
 
   it("reports a selector-less revert with undefined decode fields", async () => {

@@ -13,6 +13,7 @@ Root modules expose the public API and shared types/errors/constants; internal m
 `balanceQueries.forUser()` is the wallet-style discovery helper: it runs `eth_createAccessList` for each call, filters touched addresses with one simulator call, then returns native + token queries for `from`; `balanceQueries.discoverErc20s()` exposes just the filtered token list.
 Because the simulator runs at `from`, `address(this)` is the user address, queried token balance reads can target any account, and calls execute with `msg.sender == from`.
 Batch calls execute sequentially inside one EVM context, so state changes from earlier calls are visible to later calls.
+When `simulate` receives a non-empty `nftQueries`, the contract records opt-in NFT receipts (received-only) via flag-gated receiver hooks plus a post-batch ERC-721 Enumerable walk and best-effort `tokenURI`/`uri` capture; the flag keeps the OFF path free of any storage write.
 
 Foundry compiles `contracts/TxSimulator.sol`.
 `scripts/generate-txsim-bytecode.mjs` extracts the runtime bytecode and writes `src/generated/txSimulatorBytecode.ts`.
@@ -21,7 +22,7 @@ Never hand-edit files under `src/generated/`; regenerate them with `pnpm build:c
 
 `tokenOverrides.*` preparation is explicit.
 Balance and allowance overrides are prepared by access-list probing `balanceOf` / `allowance` data, then verifying a sentinel state override.
-The sentinel is `OVERRIDE_TOKEN_AMOUNT` (`10^50`), deliberately not `uint256.max`, because allowance decrements must still fire for standard ERC-20 implementations.
+The sentinel is `OVERRIDE_TOKEN_AMOUNT` (`10^45`), deliberately not `uint256.max`, because allowance decrements must still fire for standard ERC-20 implementations; the same constant also forges Permit2's packed `uint160` amount (it fits below `type(uint160).max`).
 
 `tokenOverrides.estimateRequirements()` runs access-list candidate discovery, a recon simulation, prepares balance and allowance overrides, then runs a forged measurement simulation.
 Allowance probes are recorded as flattened checkpoints with stride `calls.length + 1`, row-major per probe.
@@ -54,7 +55,7 @@ Tests pin exact balance before/after/delta observations, estimated requirement a
 Checkpoint math for allowance and balance probes depends on `checkpoints[probeIndex * (calls.length + 1) + callIndex]`.
 `BalanceDelta.byCall` is index-aligned with calls, entries from a failing call onward are 0n, and `sum(byCall) === delta`.
 Candidate/result ordering must stay deterministic even when RPC calls are parallelized.
-The `10^50` sentinel must remain non-max so `transferFrom` allowance decreases are observable.
+The single `OVERRIDE_TOKEN_AMOUNT` sentinel (`10^45`) must remain non-max so `transferFrom` allowance decreases are observable, and must stay below `type(uint160).max` so it also forges Permit2's packed amount.
 Transaction reverts are returned as result status; infrastructure failures throw typed errors.
 
 ## Commands
