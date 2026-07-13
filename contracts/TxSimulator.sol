@@ -17,6 +17,15 @@ contract TxSimulator is IERC1271Like {
     /// ERC-1155 Metadata `uri(uint256)` — verified via `cast sig`.
     bytes4 internal constant ERC1155_URI_SELECTOR = 0x0e89341c;
 
+    /// Receiver-hook return magic values (the selector of each hook). `ONERC721_RECEIVED` doubles as
+    /// the ERC-721 TokenReceiver interface id (single-function interface → id equals the selector).
+    bytes4 internal constant ONERC721_RECEIVED = 0x150b7a02;
+    bytes4 internal constant ONERC1155_RECEIVED = 0xf23a6e61;
+    bytes4 internal constant ONERC1155_BATCH_RECEIVED = 0xbc197c81;
+    /// ERC-165 `supportsInterface(bytes4)` interface id, and the ERC-1155 TokenReceiver interface id.
+    bytes4 internal constant ERC165_INTERFACE_ID = 0x01ffc9a7;
+    bytes4 internal constant ERC1155_RECEIVER_INTERFACE_ID = 0x4e2312e0;
+
     /// Gas forwarded to best-effort balance/allowance probes. Bounds hostile or pathological
     /// implementations (e.g. a balanceOf that infinite-loops) to a fixed cost so one bad candidate
     /// cannot OOG the whole simulation. 150k covers proxied tokens with hooks; walletchan ships 100k.
@@ -103,14 +112,6 @@ contract TxSimulator is IERC1271Like {
         uint256[] permit2Checkpoints;
         address permit2;
         uint256 stride;
-        uint256 nativeStart;
-        uint256 nativeMin;
-        // Outputs of `_executeCalls`, written here rather than returned to keep that function's stack
-        // within the EVM's 16-slot limit alongside its five calldata array parameters.
-        bool success;
-        uint256 failingCallIndex;
-        bytes revertData;
-        uint256 nativeOutflow;
     }
 
     function simulate(
@@ -141,11 +142,8 @@ contract TxSimulator is IERC1271Like {
         result.balanceProbeOk = executionState.balanceProbeOk;
         result.permit2Checkpoints = executionState.permit2Checkpoints;
 
-        _executeCalls(calls, candidates, probes, balanceProbes, permit2Probes, executionState);
-        result.success = executionState.success;
-        result.failingCallIndex = executionState.failingCallIndex;
-        result.revertData = executionState.revertData;
-        result.maxNativeOutflow = executionState.nativeOutflow;
+        (result.success, result.failingCallIndex, result.revertData, result.maxNativeOutflow) =
+            _executeCalls(calls, candidates, probes, balanceProbes, permit2Probes, executionState);
 
         result.observedTokens = _trimAddresses(tokenState.observedScratch, tokenState.observedCount);
 
@@ -217,7 +215,7 @@ contract TxSimulator is IERC1271Like {
 
     function onERC721Received(address, address, uint256 tokenId, bytes calldata) external returns (bytes4) {
         if (_captureEnabled()) _recordReceipt(msg.sender, tokenId, 1, false);
-        return 0x150b7a02;
+        return ONERC721_RECEIVED;
     }
 
     function onERC1155Received(address, address, uint256 id, uint256 value, bytes calldata)
@@ -225,7 +223,7 @@ contract TxSimulator is IERC1271Like {
         returns (bytes4)
     {
         if (_captureEnabled()) _recordReceipt(msg.sender, id, value, true);
-        return 0xf23a6e61;
+        return ONERC1155_RECEIVED;
     }
 
     function onERC1155BatchReceived(address, address, uint256[] calldata ids, uint256[] calldata values, bytes calldata)
@@ -237,14 +235,15 @@ contract TxSimulator is IERC1271Like {
                 _recordReceipt(msg.sender, ids[i], values[i], true);
             }
         }
-        return 0xbc197c81;
+        return ONERC1155_BATCH_RECEIVED;
     }
 
     /// ERC-165: advertise exactly the receiver interfaces this ghost implements, so senders that
     /// pre-check supportsInterface before safeTransferFrom don't false-revert during simulation
     /// (a real EOA has no code, so on-chain these checks are skipped entirely).
     function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
-        return interfaceId == 0x01ffc9a7 || interfaceId == 0x150b7a02 || interfaceId == 0x4e2312e0;
+        return interfaceId == ERC165_INTERFACE_ID || interfaceId == ONERC721_RECEIVED
+            || interfaceId == ERC1155_RECEIVER_INTERFACE_ID;
     }
 
     receive() external payable {}
@@ -347,13 +346,7 @@ contract TxSimulator is IERC1271Like {
         view
         returns (bool ok, uint256 tokenId)
     {
-        // forge-lint: disable-next-line(low-level-calls, calls-loop)
-        (bool success, bytes memory data) = collection.staticcall{gas: PROBE_GAS_LIMIT}(
-            abi.encodeWithSelector(TOKEN_OF_OWNER_BY_INDEX_SELECTOR, address(this), index)
-        );
-        if (!success || data.length < 32) return (ok, tokenId);
-        ok = success;
-        tokenId = abi.decode(data, (uint256));
+        return _tryStaticUint(collection, abi.encodeWithSelector(TOKEN_OF_OWNER_BY_INDEX_SELECTOR, address(this), index), 32);
     }
 
     /// Post-state metadata capture: staticcall `tokenURI(id)` / `uri(id)` per receipt under a gas
@@ -405,11 +398,11 @@ contract TxSimulator is IERC1271Like {
         BalanceProbe[] calldata balanceProbes,
         AllowanceProbe[] calldata permit2Probes,
         ExecutionState memory executionState
-    ) internal {
-        executionState.success = true;
-        executionState.failingCallIndex = type(uint256).max;
-        executionState.nativeStart = address(this).balance;
-        executionState.nativeMin = executionState.nativeStart;
+    ) internal returns (bool success, uint256 failingCallIndex, bytes memory revertData, uint256 nativeOutflow) {
+        success = true;
+        failingCallIndex = type(uint256).max;
+        uint256 nativeStart = address(this).balance;
+        uint256 nativeMin = nativeStart;
         if (probes.length > 0) {
             _recordAllowanceCheckpoints(probes, executionState.stride, 0, executionState.allowanceCheckpoints);
         }
@@ -429,9 +422,9 @@ contract TxSimulator is IERC1271Like {
         }
 
         for (uint256 i = 0; i < calls.length; ++i) {
-            (executionState.success, executionState.revertData) = _executeCall(calls[i]);
-            if (!executionState.success) {
-                executionState.failingCallIndex = i;
+            (success, revertData) = _executeCall(calls[i]);
+            if (!success) {
+                failingCallIndex = i;
                 if (probes.length > 0) {
                     _fillRemainingCheckpoints(
                         probes.length, executionState.stride, i, executionState.allowanceCheckpoints
@@ -451,7 +444,7 @@ contract TxSimulator is IERC1271Like {
             }
 
             uint256 nativeAfter = address(this).balance;
-            if (nativeAfter < executionState.nativeMin) executionState.nativeMin = nativeAfter;
+            if (nativeAfter < nativeMin) nativeMin = nativeAfter;
             _updateMinBalances(candidates, executionState.isToken, executionState.minBalances);
             if (probes.length > 0) {
                 _recordAllowanceCheckpoints(probes, executionState.stride, i + 1, executionState.allowanceCheckpoints);
@@ -472,9 +465,7 @@ contract TxSimulator is IERC1271Like {
             }
         }
 
-        executionState.nativeOutflow = executionState.nativeStart >= executionState.nativeMin
-            ? executionState.nativeStart - executionState.nativeMin
-            : 0;
+        nativeOutflow = nativeStart >= nativeMin ? nativeStart - nativeMin : 0;
     }
 
     function _executeCall(SimulatedCall calldata call_) internal returns (bool ok, bytes memory revertData) {
@@ -549,13 +540,25 @@ contract TxSimulator is IERC1271Like {
         }
     }
 
-    function _tryBalanceOf(address token, address owner) internal view returns (bool ok, uint256 balance) {
+    /// Shared best-effort read primitive: gas-capped staticcall, minimum-return-length check, then
+    /// decode the first 32-byte word as a uint256. All one-word `_try*` probes route through here so
+    /// there is a single hardening surface (the `PROBE_GAS_LIMIT` cap) instead of four copies.
+    /// `minReturnBytes` guards each getter's ABI shape (32 for a single word; 96 for Permit2's
+    /// three-word getter, whose first word — the uint160 amount — is what we decode).
+    function _tryStaticUint(address target, bytes memory callData, uint256 minReturnBytes)
+        private
+        view
+        returns (bool ok, uint256 value)
+    {
         // forge-lint: disable-next-line(low-level-calls, calls-loop)
-        (bool success, bytes memory data) =
-            token.staticcall{gas: PROBE_GAS_LIMIT}(abi.encodeWithSelector(BALANCE_OF_SELECTOR, owner));
-        if (!success || data.length < 32) return (ok, balance);
+        (bool success, bytes memory data) = target.staticcall{gas: PROBE_GAS_LIMIT}(callData);
+        if (!success || data.length < minReturnBytes) return (ok, value);
         ok = success;
-        balance = abi.decode(data, (uint256));
+        value = abi.decode(data, (uint256));
+    }
+
+    function _tryBalanceOf(address token, address owner) internal view returns (bool ok, uint256 balance) {
+        return _tryStaticUint(token, abi.encodeWithSelector(BALANCE_OF_SELECTOR, owner), 32);
     }
 
     function _readBalanceProbe(BalanceProbe calldata probe) internal view returns (bool ok, uint256 balance) {
@@ -572,27 +575,18 @@ contract TxSimulator is IERC1271Like {
         view
         returns (bool ok, uint256 allowance)
     {
-        // forge-lint: disable-next-line(low-level-calls, calls-loop)
-        (bool success, bytes memory data) =
-            token.staticcall{gas: PROBE_GAS_LIMIT}(abi.encodeWithSelector(ALLOWANCE_SELECTOR, owner, spender));
-        if (!success || data.length < 32) return (ok, allowance);
-        ok = success;
-        allowance = abi.decode(data, (uint256));
+        return _tryStaticUint(token, abi.encodeWithSelector(ALLOWANCE_SELECTOR, owner, spender), 32);
     }
 
     /// Best-effort Permit2 internal-allowance read. The getter returns (uint160 amount, uint48
-    /// expiration, uint48 nonce) as three words; only the amount is relevant to measurement.
+    /// expiration, uint48 nonce) as three words; only the amount (first word) is relevant to
+    /// measurement, so we require the full 96-byte return and decode the leading word.
     function _tryPermit2Allowance(address permit2, address token, address owner, address spender)
         internal
         view
         returns (bool ok, uint256 amount)
     {
-        bytes memory callData = abi.encodeWithSelector(PERMIT2_ALLOWANCE_SELECTOR, owner, token, spender);
-        // forge-lint: disable-next-line(low-level-calls, calls-loop)
-        (bool success, bytes memory data) = permit2.staticcall{gas: PROBE_GAS_LIMIT}(callData);
-        if (!success || data.length < 96) return (ok, amount);
-        ok = success;
-        amount = abi.decode(data, (uint160));
+        return _tryStaticUint(permit2, abi.encodeWithSelector(PERMIT2_ALLOWANCE_SELECTOR, owner, token, spender), 96);
     }
 
     function _trimAddresses(address[] memory input, uint256 length) internal pure returns (address[] memory output) {
@@ -608,7 +602,7 @@ contract TxSimulator is IERC1271Like {
             bytes32 s;
             uint8 v;
             // forge-lint: disable-next-line(inline-assembly)
-            assembly {
+            assembly ("memory-safe") {
                 r := calldataload(signature.offset)
                 s := calldataload(add(signature.offset, 0x20))
                 v := byte(0, calldataload(add(signature.offset, 0x40)))
@@ -622,7 +616,7 @@ contract TxSimulator is IERC1271Like {
             bytes32 r;
             bytes32 vs;
             // forge-lint: disable-next-line(inline-assembly)
-            assembly {
+            assembly ("memory-safe") {
                 r := calldataload(signature.offset)
                 vs := calldataload(add(signature.offset, 0x20))
             }
