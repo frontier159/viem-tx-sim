@@ -112,7 +112,7 @@ RPC providers and contracts control parts of error messages and `revertReason`. 
 `gas.estimateBatch()` measures per-call execution gas for a sequential batch in one `eth_call` (zero access lists). Dependent non-atomic legs — the canonical approve-then-swap — cannot be `eth_estimateGas`-ed standalone, because the second leg reverts without the first leg's state. The ghost runs the batch sequentially in one frame through a probe-free entry point and returns each call's gas.
 
 ```ts
-const estimate = await sim.gas.estimateBatch({
+const estimate = await simulator.gas.estimateBatch({
   from,
   calls: [approveCall, swapCall],
   // Prepare with tokenOverrides.* first — an unfunded account can't measure a swap.

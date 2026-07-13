@@ -242,7 +242,7 @@ contract TxSimulator is IERC1271Like, IERC165 {
     /// ERC-165: advertise exactly the receiver interfaces this ghost implements, so senders that
     /// pre-check supportsInterface before safeTransferFrom don't false-revert during simulation
     /// (a real EOA has no code, so on-chain these checks are skipped entirely).
-    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+    function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
         return interfaceId == ERC165_INTERFACE_ID || interfaceId == ONERC721_RECEIVED
             || interfaceId == ERC1155_RECEIVER_INTERFACE_ID;
     }
