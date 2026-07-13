@@ -1,6 +1,6 @@
 {
   "name": "viem-tx-sim",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Preview transaction and batch balance changes with viem—no local fork or simulation API.",
   "keywords": [
     "eth_call",
