@@ -5,6 +5,41 @@ import { TxSimulator, type SimulationDebugEvent } from "../src/index.js";
 import { intrinsicAndCalldataGas } from "../src/internal/gas.js";
 import { deploy, write } from "./helpers/contracts.js";
 import { type AnvilTestContext, startAnvil } from "./helpers/anvil.js";
+import { encodeBatchGasResult, fakeClient } from "./helpers/fakeClient.js";
+
+describe("gas.estimateBatch decode + math (no node)", () => {
+  it("pins the decode of simulateBatchGas returndata against the TS intrinsic math", async () => {
+    const from = "0x1111111111111111111111111111111111111111" as const;
+    const calls = [
+      { to: "0x2222222222222222222222222222222222222222" as const, data: "0x01020304" as const },
+      { to: "0x3333333333333333333333333333333333333333" as const, data: "0x" as const },
+    ];
+    // Scripted per-call execution gas the "node" reports back from the ghost's probe-free entry point.
+    const execGasPerCall = [5_000n, 8_000n];
+
+    const sim = TxSimulator.create({
+      client: fakeClient({
+        eth_call: () => encodeBatchGasResult({ allSuccess: true, execGasPerCall }),
+      }),
+    });
+
+    const estimate = await sim.gas.estimateBatch({ from, calls });
+
+    expect(estimate.failingCallIndex).toBeNull();
+    expect(estimate.byCall).toHaveLength(2);
+    for (const [index, call] of calls.entries()) {
+      const intrinsic = intrinsicAndCalldataGas(call.data);
+      expect(estimate.byCall[index]).toEqual({
+        executionGas: execGasPerCall[index],
+        intrinsicAndCalldataGas: intrinsic,
+        suggestedLimit: execGasPerCall[index]! + intrinsic,
+      });
+    }
+    expect(estimate.totalSuggestedLimit).toBe(
+      estimate.byCall.reduce((sum, call) => sum + call.suggestedLimit, 0n),
+    );
+  });
+});
 
 describe("intrinsicAndCalldataGas (EIP-7623 floor, no node)", () => {
   it("returns the bare intrinsic for empty calldata", () => {

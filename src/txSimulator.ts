@@ -155,6 +155,11 @@ export interface TxSimulator {
      * spender), reported as `permit2Allowances`; batches that never touch Permit2 are unchanged.
      * Batch-permit (`PermitBatch`) in-batch grants are not detected, so such a batch may over-report.
      *
+     * Caveat when `from` is unfunded: access-list discovery degrades to the direct call targets, so a
+     * Permit2 singleton reached only through inner calls (never a direct call target) falls out of the
+     * candidate set and its requirements go silently unmeasured. Fund `from`, or include a direct
+     * Permit2 call in the batch, to restore Permit2 measurement.
+     *
      * @throws InvalidSimulationInputError when `calls` is empty.
      * @throws AccessListUnsupportedError when the RPC endpoint cannot provide access lists.
      * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides or
