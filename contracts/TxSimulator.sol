@@ -3,6 +3,9 @@ pragma solidity ^0.8.24;
 
 import {IERC1271Like} from "./interfaces/IERC1271Like.sol";
 
+// `supportsInterface` is implemented without inheriting IERC165: the ghost advertises exactly three
+// receiver ids (see the function's docblock) and gains nothing from an interface file for that.
+// forge-lint: disable-next-line(missing-inheritance)
 contract TxSimulator is IERC1271Like {
     bytes4 internal constant ERC1271_MAGIC_VALUE = 0x1626ba7e;
     bytes4 internal constant ERC1271_INVALID_VALUE = 0xffffffff;
@@ -550,7 +553,9 @@ contract TxSimulator is IERC1271Like {
         view
         returns (bool ok, uint256 value)
     {
-        // forge-lint: disable-next-line(low-level-calls, calls-loop)
+        // return-bomb: accepted residual — the gas cap bounds callee compute; a hostile probe target
+        // returning oversized data degrades the budget rather than corrupting results (see plan 044).
+        // forge-lint: disable-next-line(low-level-calls, calls-loop, return-bomb)
         (bool success, bytes memory data) = target.staticcall{gas: PROBE_GAS_LIMIT}(callData);
         if (!success || data.length < minReturnBytes) return (ok, value);
         ok = success;

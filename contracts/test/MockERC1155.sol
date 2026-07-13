@@ -31,10 +31,12 @@ contract MockERC1155 {
         uint256[] calldata amounts,
         bytes calldata
     ) external {
+        // forge-lint: disable-start(costly-loop)
         for (uint256 i = 0; i < ids.length; ++i) {
             balanceOf[ids[i]][from] -= amounts[i];
             balanceOf[ids[i]][to] += amounts[i];
         }
+        // forge-lint: disable-end(costly-loop)
         _batchAcceptanceCheck(from, to, ids, amounts);
     }
 

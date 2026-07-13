@@ -34,11 +34,12 @@ contract EnumerableMint721 {
         for (uint256 i = 0; i < n; ++i) {
             uint256 id = _mint(to);
             if (to.code.length > 0) {
-                // forge-lint: disable-start(low-level-calls)
+                // forge-lint: disable-start(low-level-calls, calls-loop)
                 (bool ok, bytes memory data) =
                     to.call(abi.encodeWithSelector(ERC721_RECEIVED, msg.sender, address(0), id, ""));
-                // forge-lint: disable-end(low-level-calls)
+                // forge-lint: disable-end(low-level-calls, calls-loop)
                 if (!ok || data.length < 32 || abi.decode(data, (bytes4)) != ERC721_RECEIVED) {
+                    // forge-lint: disable-next-line(require-revert-in-loop)
                     revert UnsafeRecipient();
                 }
             }
@@ -46,6 +47,7 @@ contract EnumerableMint721 {
     }
 
     function transferFrom(address from, address to, uint256 id) external {
+        // forge-lint: disable-next-line(custom-errors)
         require(ownerOf[id] == from, "not owner");
         _removeFromOwner(from, id);
         ownerOf[id] = to;

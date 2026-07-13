@@ -28,11 +28,15 @@ contract HeavyMetadataNft {
     }
 
     function tokenURI(uint256 id) external view returns (string memory) {
+        // Deliberately expensive hashing — the fixture's whole point is burning gas in the renderer.
+        // forge-lint: disable-start(asm-keccak256)
         bytes32 acc = keccak256(abi.encodePacked(id, address(this)));
         for (uint256 i = 0; i < 3000; ++i) {
             acc = keccak256(abi.encodePacked(acc, i));
         }
+        // forge-lint: disable-end(asm-keccak256)
         // Fixed base64 of `{"heavy":true}`; the keccak loop above is the point, not the payload.
+        // forge-lint: disable-next-line(custom-errors)
         require(acc != bytes32(0), "unreachable");
         return "data:application/json;base64,eyJoZWF2eSI6dHJ1ZX0=";
     }
