@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeFunctionData, numberToHex } from "viem";
 
-import { OVERRIDE_PERMIT2_AMOUNT, TxSimulator } from "../src/index.js";
+import { OVERRIDE_TOKEN_AMOUNT, TxSimulator } from "../src/index.js";
 import { deploy, write } from "./helpers/contracts.js";
 import { type AnvilTestContext, startAnvil } from "./helpers/anvil.js";
 
@@ -91,7 +91,7 @@ describe("tokenOverrides.forPermit2Allowances", () => {
       ],
     })) as readonly [bigint, number, number];
 
-    expect(amount).toBe(OVERRIDE_PERMIT2_AMOUNT);
+    expect(amount).toBe(OVERRIDE_TOKEN_AMOUNT);
     expect(expiration).toBe(EXPIRATION_MAX);
     expect(nonce).toBe(7);
   });

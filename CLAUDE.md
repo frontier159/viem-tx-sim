@@ -22,7 +22,7 @@ Never hand-edit files under `src/generated/`; regenerate them with `pnpm build:c
 
 `tokenOverrides.*` preparation is explicit.
 Balance and allowance overrides are prepared by access-list probing `balanceOf` / `allowance` data, then verifying a sentinel state override.
-The sentinel is `OVERRIDE_TOKEN_AMOUNT` (`10^50`), deliberately not `uint256.max`, because allowance decrements must still fire for standard ERC-20 implementations.
+The sentinel is `OVERRIDE_TOKEN_AMOUNT` (`10^45`), deliberately not `uint256.max`, because allowance decrements must still fire for standard ERC-20 implementations; the same constant also forges Permit2's packed `uint160` amount (it fits below `type(uint160).max`).
 
 `tokenOverrides.estimateRequirements()` runs access-list candidate discovery, a recon simulation, prepares balance and allowance overrides, then runs a forged measurement simulation.
 Allowance probes are recorded as flattened checkpoints with stride `calls.length + 1`, row-major per probe.
@@ -55,7 +55,7 @@ Tests pin exact balance before/after/delta observations, estimated requirement a
 Checkpoint math for allowance and balance probes depends on `checkpoints[probeIndex * (calls.length + 1) + callIndex]`.
 `BalanceDelta.byCall` is index-aligned with calls, entries from a failing call onward are 0n, and `sum(byCall) === delta`.
 Candidate/result ordering must stay deterministic even when RPC calls are parallelized.
-The `10^50` sentinel must remain non-max so `transferFrom` allowance decreases are observable.
+The single `OVERRIDE_TOKEN_AMOUNT` sentinel (`10^45`) must remain non-max so `transferFrom` allowance decreases are observable, and must stay below `type(uint160).max` so it also forges Permit2's packed amount.
 Transaction reverts are returned as result status; infrastructure failures throw typed errors.
 
 ## Commands

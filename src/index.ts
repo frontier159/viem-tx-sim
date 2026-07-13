@@ -1,7 +1,6 @@
 export {
   ACCESS_LIST_GAS_LIMIT,
   DEFAULT_SIMULATION_GAS_LIMIT,
-  OVERRIDE_PERMIT2_AMOUNT,
   OVERRIDE_TOKEN_AMOUNT,
 } from "./constants.js";
 export { TxSimulator } from "./txSimulator.js";

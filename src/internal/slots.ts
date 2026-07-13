@@ -7,7 +7,7 @@ import {
   parseAbi,
 } from "viem";
 
-import { OVERRIDE_PERMIT2_AMOUNT, OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
+import { OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
 import type {
   AllowanceSlotPair,
   ForPermit2AllowancesArgs,
@@ -302,7 +302,7 @@ async function resolvePermit2Slot(
   if (current === undefined) return undefined;
 
   // Preserve the on-chain nonce: `permit()` verifies the signed nonce against storage.
-  const packed = (current.nonce << 208n) | (EXPIRATION_MAX << 160n) | OVERRIDE_PERMIT2_AMOUNT;
+  const packed = (current.nonce << 208n) | (EXPIRATION_MAX << 160n) | OVERRIDE_TOKEN_AMOUNT;
   const bases =
     args.cachedBase === undefined
       ? PERMIT2_BASE_SLOTS
@@ -317,7 +317,7 @@ async function resolvePermit2Slot(
     });
     if (
       verified !== undefined &&
-      verified.amount === OVERRIDE_PERMIT2_AMOUNT &&
+      verified.amount === OVERRIDE_TOKEN_AMOUNT &&
       verified.nonce === current.nonce
     ) {
       return { override: { token: args.permit2, slot, amount: packed }, base };
