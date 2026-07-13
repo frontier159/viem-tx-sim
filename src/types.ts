@@ -237,6 +237,48 @@ export type EstimateAssetRequirementsArgs = SimulationOptions & {
   errorAbi?: Abi;
 };
 
+/** Arguments for `TxSimulator.gas.estimateBatch`. */
+export type EstimateBatchGasArgs = SimulationOptions & {
+  /** Account being simulated; the ghost simulator bytecode is injected at this address. */
+  from: Address;
+  /** One call or an ERC-5792-style sequential batch. Must contain at least one call. */
+  calls: readonly SimulatedCall[];
+  /**
+   * Storage-slot overrides applied before measuring. Prepare with `tokenOverrides.*`: an unfunded
+   * account cannot measure a swap, so forge the balances/allowances the batch needs first.
+   */
+  tokenSlotOverrides?: readonly TokenSlotOverride[];
+  /** Native balance overrides applied before measuring. Duplicate accounts use the last amount. */
+  nativeBalanceOverrides?: readonly NativeBalanceOverride[];
+};
+
+/** Per-call gas breakdown from `gas.estimateBatch`, index-aligned with `calls`. */
+export type BatchGasCallEstimate = {
+  /** Execution gas measured by the ghost (`gasleft()` delta around the call). */
+  executionGas: bigint;
+  /** Intrinsic (21000) + calldata gas under the EIP-7623 floor, computed off-chain. */
+  intrinsicAndCalldataGas: bigint;
+  /**
+   * `executionGas + intrinsicAndCalldataGas`, **pre-buffer**. Apply your own EIP-150 headroom
+   * (2× recommended) before using it as a per-leg `gas` limit; the library does not bake it in.
+   */
+  suggestedLimit: bigint;
+};
+
+/**
+ * Result of `gas.estimateBatch`. `byCall` is index-aligned with `calls`; on a revert, entries from
+ * `failingCallIndex` onward have all three fields `0n` (the same zero-tail convention `simulate` uses),
+ * because gas measured for calls after a failing one ran against state the real chain never reaches.
+ */
+export type BatchGasEstimate = {
+  /** Per-call gas breakdown, index-aligned with `calls`. */
+  byCall: BatchGasCallEstimate[];
+  /** Sum of per-call `suggestedLimit`s (still pre-buffer). */
+  totalSuggestedLimit: bigint;
+  /** Zero-based index of the first reverting call, or `null` when every call succeeded. */
+  failingCallIndex: number | null;
+};
+
 /** Configuration for `TxSimulator.create`. */
 export type TxSimulatorConfig = {
   client: PublicClient;

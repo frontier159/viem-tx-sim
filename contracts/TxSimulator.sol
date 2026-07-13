@@ -178,6 +178,34 @@ contract TxSimulator is IERC1271Like {
         executionState.stride = stride;
     }
 
+    /// Probe-free per-call gas measurement for a sequential batch. Runs the same `_executeCall`
+    /// primitive `simulate` uses, but with NOTHING between the `gasleft()` reads — no min-balance
+    /// updates, no checkpoint recording — so the delta is the call's own execution gas and not probe
+    /// overhead. Halt-and-report on the first failure (matching `simulate`): set `allSuccess = false`,
+    /// record `failingCallIndex`, and leave `execGasPerCall[i..]` zero-filled. Intrinsic + calldata gas
+    /// is added TS-side. Do NOT wire probes into this loop — pollution-freedom is its whole reason for
+    /// existing.
+    function simulateBatchGas(SimulatedCall[] calldata calls)
+        external
+        returns (bool allSuccess, uint256 failingCallIndex, uint256[] memory execGasPerCall)
+    {
+        allSuccess = true;
+        failingCallIndex = type(uint256).max;
+        execGasPerCall = new uint256[](calls.length);
+
+        for (uint256 i = 0; i < calls.length; ++i) {
+            uint256 gasBefore = gasleft();
+            (bool ok,) = _executeCall(calls[i]);
+            uint256 gasUsed = gasBefore - gasleft();
+            if (!ok) {
+                allSuccess = false;
+                failingCallIndex = i;
+                break;
+            }
+            execGasPerCall[i] = gasUsed;
+        }
+    }
+
     function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4) {
         return _recover(hash, signature) == address(this) ? ERC1271_MAGIC_VALUE : ERC1271_INVALID_VALUE;
     }

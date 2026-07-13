@@ -117,6 +117,9 @@ const fake: TxSimulator = {
       },
     }),
   },
+  gas: {
+    estimateBatch: async () => ({ byCall: [], totalSuggestedLimit: 0n, failingCallIndex: null }),
+  },
 };
 
 void fake;

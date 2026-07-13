@@ -7,7 +7,8 @@ import { buildBalanceResults } from "./internal/checkpoints.js";
 import { discoverErc20s, forUserBalanceQueries } from "./internal/queryDiscovery.js";
 import { estimateAssetRequirements } from "./internal/requirements.js";
 import { blockOptionsSpread, type ClientArgs } from "./internal/rpc.js";
-import { runSimulator, type RawNftReceipt } from "./internal/simulator.js";
+import { intrinsicAndCalldataGas } from "./internal/gas.js";
+import { runBatchGas, runSimulator, type RawNftReceipt } from "./internal/simulator.js";
 import {
   prepareAllowanceOverrides,
   prepareBalanceOverrides,
@@ -15,6 +16,8 @@ import {
 } from "./internal/slots.js";
 import type {
   BalanceQuery,
+  BatchGasEstimate,
+  EstimateBatchGasArgs,
   ForPermit2AllowancesArgs,
   ForUserBalanceQueriesArgs,
   PreparedAllowanceOverrides,
@@ -161,6 +164,30 @@ export interface TxSimulator {
       args: EstimateAssetRequirementsArgs,
     ) => Promise<EstimatedAssetRequirements>;
   };
+
+  readonly gas: {
+    /**
+     * Measures per-call execution gas for a sequential batch, in one `eth_call`, zero access lists.
+     *
+     * Dependent non-atomic legs (approve-then-swap) can't be `eth_estimateGas`-ed standalone — the
+     * second leg reverts without the first leg's state. The ghost runs the batch sequentially in one
+     * frame through a probe-free entry point and returns each call's `gasleft()` delta, on top of which
+     * this adds intrinsic + calldata gas (EIP-7623-aware).
+     *
+     * Pass the **same state-override args as `simulate`** (`tokenSlotOverrides`,
+     * `nativeBalanceOverrides`): an unfunded account can't measure a swap, so prepare overrides with
+     * `tokenOverrides.*` first. Discovery is not run inside this method.
+     *
+     * `suggestedLimit` is **pre-buffer** — apply your own EIP-150 headroom (2× recommended) before
+     * using it as a per-leg limit. On a revert, `byCall` entries from `failingCallIndex` onward are all
+     * `0n`. Transaction reverts are reported via `failingCallIndex`, not thrown.
+     *
+     * @throws InvalidSimulationInputError when `calls` is empty.
+     * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides or
+     * returns undecodable simulator output.
+     */
+    estimateBatch: (args: EstimateBatchGasArgs) => Promise<BatchGasEstimate>;
+  };
 }
 
 /** Factory for {@link TxSimulator} instances bound to one viem public client. */
@@ -222,6 +249,10 @@ export const TxSimulator = {
             client: bound.client,
           }),
       },
+      gas: {
+        estimateBatch: (args) =>
+          runEstimateBatchGas({ ...args, ...defaults(args), client: bound.client }),
+      },
     };
   },
 };
@@ -275,6 +306,55 @@ async function runSimulate(args: SimulateArgs & ClientArgs): Promise<SimulationR
   }
 
   return { status: "success", ...balances, nftReceipts };
+}
+
+async function runEstimateBatchGas(
+  args: EstimateBatchGasArgs & ClientArgs,
+): Promise<BatchGasEstimate> {
+  if (args.calls.length === 0) {
+    throw new InvalidSimulationInputError("gas.estimateBatch requires at least one call.");
+  }
+
+  const calls = args.calls.map((call) => ({
+    to: call.to,
+    data: call.data,
+    value: call.value ?? 0n,
+  })) satisfies SimulatedCall[];
+
+  const result = await runBatchGas({
+    client: args.client,
+    from: args.from,
+    calls,
+    tokenSlotOverrides: args.tokenSlotOverrides ?? [],
+    extraStateOverrides: (args.nativeBalanceOverrides ?? []).map((override) => ({
+      address: override.account,
+      balance: override.amount,
+    })),
+    debug: args.debug,
+    ...blockOptionsSpread(args),
+    gas: args.gas,
+  });
+
+  const { failingCallIndex } = result;
+  const byCall = calls.map((call, index) => {
+    // Zero-tail: from the failing call onward every field is 0n (matches the contract zero-fill).
+    if (failingCallIndex !== null && index >= failingCallIndex) {
+      return { executionGas: 0n, intrinsicAndCalldataGas: 0n, suggestedLimit: 0n };
+    }
+    const executionGas = result.execGasPerCall[index] ?? 0n;
+    const intrinsic = intrinsicAndCalldataGas(call.data);
+    return {
+      executionGas,
+      intrinsicAndCalldataGas: intrinsic,
+      suggestedLimit: executionGas + intrinsic,
+    };
+  });
+
+  return {
+    byCall,
+    totalSuggestedLimit: byCall.reduce((sum, entry) => sum + entry.suggestedLimit, 0n),
+    failingCallIndex,
+  };
 }
 
 /** Decodes a ghost-contract NFT receipt, best-effort: malformed/empty `tokenUriRaw` → `tokenUri` undefined. */

@@ -70,3 +70,22 @@ export function encodeSimulationResult(overrides: Partial<SimulationResultStruct
   };
   return encodeFunctionResult({ abi: txSimulatorAbi, functionName: "simulate", result });
 }
+
+/** Encodes a ghost-contract `simulateBatchGas` flat-tuple return the way a node would from `eth_call`. */
+export function encodeBatchGasResult(
+  overrides: Partial<{
+    allSuccess: boolean;
+    failingCallIndex: bigint;
+    execGasPerCall: readonly bigint[];
+  }> = {},
+): Hex {
+  return encodeFunctionResult({
+    abi: txSimulatorAbi,
+    functionName: "simulateBatchGas",
+    result: [
+      overrides.allSuccess ?? true,
+      overrides.failingCallIndex ?? 0n,
+      overrides.execGasPerCall ?? [],
+    ],
+  });
+}

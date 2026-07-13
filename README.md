@@ -107,6 +107,28 @@ Transaction reverts are results. Infrastructure and invalid-input failures throw
 
 RPC providers and contracts control parts of error messages and `revertReason`. Treat that text as untrusted before rendering it in a UI.
 
+## Batch gas estimation
+
+`gas.estimateBatch()` measures per-call execution gas for a sequential batch in one `eth_call` (zero access lists). Dependent non-atomic legs — the canonical approve-then-swap — cannot be `eth_estimateGas`-ed standalone, because the second leg reverts without the first leg's state. The ghost runs the batch sequentially in one frame through a probe-free entry point and returns each call's gas.
+
+```ts
+const estimate = await sim.gas.estimateBatch({
+  from,
+  calls: [approveCall, swapCall],
+  // Prepare with tokenOverrides.* first — an unfunded account can't measure a swap.
+  tokenSlotOverrides,
+});
+// estimate.byCall[i] = { executionGas, intrinsicAndCalldataGas, suggestedLimit }
+// estimate.failingCallIndex is null on success, or the index of the first reverting call.
+```
+
+Each `suggestedLimit` is `executionGas + intrinsicAndCalldataGas` and is **pre-buffer**. Apply your own EIP-150 headroom before using it as a per-leg `gas` limit — **2× is recommended**. EIP-150's 63/64 gas-forwarding rule means a limit that merely equals raw consumption can run out of gas at the innermost frame of a deep call tree, because each `CALL` forwards only 63/64 of remaining gas. The library returns a pre-buffer value and leaves the multiplier as a product decision: a wallet that re-estimates at broadcast can use a tighter factor.
+
+Two error bars apply, and both should be documented to consumers:
+
+- **State drift between simulation and broadcast.** Non-atomic 5792 legs broadcast as separate transactions across potentially several blocks; pools move, storage changes, and the gas a leg actually costs at broadcast can differ from the simulated value. The direction is unpredictable; the buffer absorbs modest drift, large drift needs re-estimation.
+- **Warm/cold access divergence (known direction).** The sequential simulation runs all calls in one frame, so call 2 sees storage and accounts that call 1 already warmed (EIP-2929: 100 gas warm vs 2100 cold SLOAD, 100 vs 2600 for account access). When the same legs broadcast as *separate* transactions, each real transaction starts with cold state. The sequential simulation therefore **systematically under-measures** the gas of later calls that reuse earlier calls' warmed slots — the real cold-start transaction costs more. This compounds with the EIP-150 dilution in the same direction, a second reason the buffer should be generous. (For an *atomic* batch executed as one transaction the warming is real and the measurement is accurate — the divergence is specifically a non-atomic, separate-broadcast artifact.)
+
 ## Limitations
 
 - A simulation reads one RPC state snapshot. Pending transactions, later blocks, and builder behavior can change the outcome before the signed transaction lands.
@@ -127,6 +149,7 @@ To pin a multi-step workflow, pass the same fixed `blockNumber` to every discove
 - `balanceQueries.forUser()` and `balanceQueries.discoverErc20s()`
 - `tokenOverrides.forBalances()` and `tokenOverrides.forAllowances()`
 - `tokenOverrides.estimateRequirements()`
+- `gas.estimateBatch()`
 - `DEFAULT_SIMULATION_GAS_LIMIT` and `OVERRIDE_TOKEN_AMOUNT`
 
 The package exports its public argument/result types and typed error classes. TypeScript declarations are the detailed reference.
