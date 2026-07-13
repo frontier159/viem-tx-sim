@@ -142,6 +142,24 @@ export type RevertError = {
   args: readonly unknown[];
 };
 
+/** One NFT received by `from` during simulation, aggregated per `(collection, tokenId)`. */
+export type NftReceipt = {
+  /** ERC-721/1155 collection contract that transferred the token. */
+  collection: Address;
+  /** Received token id. */
+  tokenId: bigint;
+  /** 1 for ERC-721; the transferred value for ERC-1155. */
+  amount: bigint;
+  /** Token standard inferred from the capture path. */
+  standard: "erc721" | "erc1155";
+  /**
+   * Decoded post-simulation `tokenURI(id)` / `uri(id)`, typically a `data:application/json;base64,...`
+   * URI. Best-effort under a gas budget; absent when capture failed, was off, or returned malformed
+   * data. Reflects state at the simulation halt point.
+   */
+  tokenUri?: string;
+};
+
 /** Arguments for `TxSimulator.simulate`. */
 export type SimulateArgs = SimulationOptions & {
   /** Account being simulated; the ghost simulator bytecode is injected at this address. */
@@ -160,6 +178,11 @@ export type SimulateArgs = SimulationOptions & {
    * Query forged accounts if you want to observe them.
    */
   nativeBalanceOverrides?: readonly NativeBalanceOverride[];
+  /**
+   * ERC-721/1155 collections to watch for tokens received by `from` during simulation. Omit or pass
+   * `[]` to skip NFT capture entirely (zero added cost). Received tokens surface in `nftReceipts`.
+   */
+  nftQueries?: readonly Address[];
   /** Additional error definitions for decoding this call's reverts; merged after the bound errorAbi. */
   errorAbi?: Abi;
 };
@@ -303,6 +326,11 @@ export type SimulationSuccess = {
   balanceDeltas: BalanceDelta[];
   /** Queries that could not be read, usually because an ERC-20 `balanceOf` staticcall failed. */
   unresolved: BalanceQuery[];
+  /**
+   * NFTs received by `from` during simulation, one entry per `(collection, tokenId)`. Empty unless
+   * `nftQueries` was supplied. Order is deterministic: receipt order first, then Enumerable-walk order.
+   */
+  nftReceipts: NftReceipt[];
 };
 
 /** Simulation result for a transaction revert; infrastructure failures throw typed errors instead. */
@@ -312,6 +340,11 @@ export type SimulationReverted = {
   balanceDeltas: BalanceDelta[];
   /** Queries that could not be read, usually because an ERC-20 `balanceOf` staticcall failed. */
   unresolved: BalanceQuery[];
+  /**
+   * NFTs received by `from` before the batch halted, one entry per `(collection, tokenId)`. Empty
+   * unless `nftQueries` was supplied. Order is deterministic: receipt order first, then walk order.
+   */
+  nftReceipts: NftReceipt[];
   /** Raw EVM revert data from the failing simulated call. */
   revertData: Hex;
   /** Human-readable decoded revert; present when revertData decodes via supplied error definitions or as built-in Error/Panic. */

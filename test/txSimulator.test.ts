@@ -90,12 +90,12 @@ describe("TxSimulator", () => {
         calls: [{ to: "0x0000000000000000000000000000000000000def", data: "0x" }],
         balanceQueries: [],
       }),
-    ).resolves.toEqual({ status: "success", balanceDeltas: [], unresolved: [] });
+    ).resolves.toEqual({ status: "success", balanceDeltas: [], unresolved: [], nftReceipts: [] });
   });
 });
 
 const fake: TxSimulator = {
-  simulate: async () => ({ status: "success", balanceDeltas: [], unresolved: [] }),
+  simulate: async () => ({ status: "success", balanceDeltas: [], unresolved: [], nftReceipts: [] }),
   balanceQueries: { forUser: async () => [], discoverErc20s: async () => [] },
   tokenOverrides: {
     forBalances: async () => ({ slots: [], unresolved: [] }),

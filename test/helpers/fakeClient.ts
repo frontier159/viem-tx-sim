@@ -30,6 +30,14 @@ export function fakeClient(responders: Record<string, (params: unknown) => unkno
   });
 }
 
+type NftReceiptStruct = {
+  collection: Hex;
+  tokenId: bigint;
+  amount: bigint;
+  erc1155: boolean;
+  tokenUriRaw: Hex;
+};
+
 type SimulationResultStruct = {
   success: boolean;
   failingCallIndex: bigint;
@@ -41,6 +49,7 @@ type SimulationResultStruct = {
   balanceCheckpoints: readonly bigint[];
   balanceProbeOk: readonly boolean[];
   permit2Checkpoints: readonly bigint[];
+  nftReceipts: readonly NftReceiptStruct[];
 };
 
 /** Encodes a ghost-contract `SimulationResult` the way a node would return it from `eth_call`. */
@@ -56,6 +65,7 @@ export function encodeSimulationResult(overrides: Partial<SimulationResultStruct
     balanceCheckpoints: [],
     balanceProbeOk: [],
     permit2Checkpoints: [],
+    nftReceipts: [],
     ...overrides,
   };
   return encodeFunctionResult({ abi: txSimulatorAbi, functionName: "simulate", result });

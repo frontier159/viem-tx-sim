@@ -10,11 +10,33 @@ contract TxSimulator is IERC1271Like {
     bytes4 internal constant ALLOWANCE_SELECTOR = 0xdd62ed3e;
     /// Permit2 `allowance(address owner, address token, address spender)` — verified via `cast sig`.
     bytes4 internal constant PERMIT2_ALLOWANCE_SELECTOR = 0x927da105;
+    /// ERC-721 Enumerable `tokenOfOwnerByIndex(address,uint256)` — verified via `cast sig`.
+    bytes4 internal constant TOKEN_OF_OWNER_BY_INDEX_SELECTOR = 0x2f745c59;
+    /// ERC-721 Metadata `tokenURI(uint256)` — verified via `cast sig`.
+    bytes4 internal constant TOKEN_URI_SELECTOR = 0xc87b56dd;
+    /// ERC-1155 Metadata `uri(uint256)` — verified via `cast sig`.
+    bytes4 internal constant ERC1155_URI_SELECTOR = 0x0e89341c;
 
     /// Gas forwarded to best-effort balance/allowance probes. Bounds hostile or pathological
     /// implementations (e.g. a balanceOf that infinite-loops) to a fixed cost so one bad candidate
     /// cannot OOG the whole simulation. 150k covers proxied tokens with hooks; walletchan ships 100k.
     uint256 internal constant PROBE_GAS_LIMIT = 150_000;
+
+    /// Per-collection cap on the Enumerable walk: a positive balance delta above this is treated as
+    /// "not an NFT mint" and skipped, bounding the `tokenOfOwnerByIndex` probe loop.
+    uint256 internal constant MAX_ENUMERATE_PER_COLLECTION = 50;
+    /// Per-receipt gas budget for post-state `tokenURI`/`uri` metadata capture. On-chain SVG
+    /// renderers are genuinely heavy; walletchan ships the same 5M/500k split.
+    uint256 internal constant METADATA_GAS_LIMIT = 5_000_000;
+    /// Gas reserved so metadata capture can never starve the ABI-encoding of the return value.
+    uint256 internal constant METADATA_RETURN_GAS_RESERVE = 500_000;
+
+    /// Received-NFT receipts, recorded by the receiver hooks and the Enumerable walk when capture is
+    /// enabled. Slot 0 — guaranteed empty at the start of every `eth_call`.
+    NftReceipt[] private _nftReceipts;
+    /// Capture gate: set in `simulate` only when `nftCollections` is non-empty, so the OFF path pays
+    /// no SSTORE and the hooks stay effectively pure (slot 1).
+    bool private _nftCaptureEnabled;
 
     struct SimulatedCall {
         address to;
@@ -32,6 +54,19 @@ contract TxSimulator is IERC1271Like {
         address account;
     }
 
+    struct NftReceipt {
+        address collection;
+        uint256 tokenId;
+        uint256 amount;
+        bool erc1155;
+        bytes tokenUriRaw;
+    }
+
+    struct NftSnapshot {
+        uint256[] beforeBalances;
+        bool[] ok;
+    }
+
     struct SimulationResult {
         bool success;
         uint256 failingCallIndex;
@@ -43,6 +78,7 @@ contract TxSimulator is IERC1271Like {
         uint256[] balanceCheckpoints;
         bool[] balanceProbeOk;
         uint256[] permit2Checkpoints;
+        NftReceipt[] nftReceipts;
     }
 
     struct TokenState {
@@ -78,8 +114,17 @@ contract TxSimulator is IERC1271Like {
         AllowanceProbe[] calldata probes,
         BalanceProbe[] calldata balanceProbes,
         address permit2,
-        AllowanceProbe[] calldata permit2Probes
+        AllowanceProbe[] calldata permit2Probes,
+        address[] calldata nftCollections
     ) external returns (SimulationResult memory result) {
+        // Flag-gate recording so the OFF path pays no SSTORE and the receiver hooks stay effectively
+        // pure. Snapshot per-collection balances before the batch for the post-state Enumerable walk.
+        NftSnapshot memory nftSnapshot;
+        if (nftCollections.length > 0) {
+            _nftCaptureEnabled = true;
+            nftSnapshot = _snapshotNftBalances(nftCollections);
+        }
+
         TokenState memory tokenState = _snapshotTokens(candidates);
         // Built in a helper so the checkpoint-array allocations don't pin extra stack slots in this
         // frame; the arrays are shared by reference with `result` below.
@@ -105,6 +150,14 @@ contract TxSimulator is IERC1271Like {
                 result.maxTokenOutflows[i] = tokenState.beforeBalances[i] - tokenState.minBalances[i];
             }
         }
+
+        // Capture NFTs at the halt point (regardless of success), matching the balance `after`
+        // semantics: the Enumerable walk over new tokens, then best-effort metadata, then copy out.
+        if (nftCollections.length > 0) {
+            _walkEnumerable(nftCollections, nftSnapshot);
+            _captureMetadata();
+            result.nftReceipts = _nftReceipts;
+        }
     }
 
     function _newExecutionState(
@@ -129,19 +182,43 @@ contract TxSimulator is IERC1271Like {
         return _recover(hash, signature) == address(this) ? ERC1271_MAGIC_VALUE : ERC1271_INVALID_VALUE;
     }
 
-    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+    function onERC721Received(address, address, uint256 tokenId, bytes calldata) external returns (bytes4) {
+        if (_nftCaptureEnabled) {
+            NftReceipt storage receipt = _nftReceipts.push();
+            receipt.collection = msg.sender;
+            receipt.tokenId = tokenId;
+            receipt.amount = 1;
+        }
         return 0x150b7a02;
     }
 
-    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
+    function onERC1155Received(address, address, uint256 id, uint256 value, bytes calldata)
+        external
+        returns (bytes4)
+    {
+        if (_nftCaptureEnabled) {
+            NftReceipt storage receipt = _nftReceipts.push();
+            receipt.collection = msg.sender;
+            receipt.tokenId = id;
+            receipt.amount = value;
+            receipt.erc1155 = true;
+        }
         return 0xf23a6e61;
     }
 
-    function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata)
+    function onERC1155BatchReceived(address, address, uint256[] calldata ids, uint256[] calldata values, bytes calldata)
         external
-        pure
         returns (bytes4)
     {
+        if (_nftCaptureEnabled) {
+            for (uint256 i = 0; i < ids.length; ++i) {
+                NftReceipt storage receipt = _nftReceipts.push();
+                receipt.collection = msg.sender;
+                receipt.tokenId = ids[i];
+                receipt.amount = values[i];
+                receipt.erc1155 = true;
+            }
+        }
         return 0xbc197c81;
     }
 
@@ -168,6 +245,80 @@ contract TxSimulator is IERC1271Like {
                 tokenState.minBalances[i] = balance;
                 tokenState.observedScratch[tokenState.observedCount++] = candidates[i];
             }
+        }
+    }
+
+    function _snapshotNftBalances(address[] calldata collections)
+        internal
+        view
+        returns (NftSnapshot memory snapshot)
+    {
+        snapshot.beforeBalances = new uint256[](collections.length);
+        snapshot.ok = new bool[](collections.length);
+        for (uint256 i = 0; i < collections.length; ++i) {
+            (snapshot.ok[i], snapshot.beforeBalances[i]) = _tryBalanceOf(collections[i], address(this));
+        }
+    }
+
+    /// ERC-721 Enumerable walk: for each collection whose owned-balance grew by a small positive
+    /// amount, read the newly-owned token ids at indices `[before, after)` and record them (deduped).
+    /// Catches plain-`_mint` Enumerable collections (e.g. Uniswap V3 positions) that fire no hook.
+    function _walkEnumerable(address[] calldata collections, NftSnapshot memory snapshot) internal {
+        for (uint256 i = 0; i < collections.length; ++i) {
+            if (!snapshot.ok[i]) continue;
+            uint256 beforeBalance = snapshot.beforeBalances[i];
+            (bool okAfter, uint256 afterBalance) = _tryBalanceOf(collections[i], address(this));
+            if (!okAfter || afterBalance <= beforeBalance) continue;
+            if (afterBalance - beforeBalance > MAX_ENUMERATE_PER_COLLECTION) continue;
+
+            for (uint256 idx = beforeBalance; idx < afterBalance; ++idx) {
+                (bool ok, uint256 tokenId) = _tryTokenOfOwnerByIndex(collections[i], idx);
+                if (!ok || _alreadyCaptured(collections[i], tokenId)) continue;
+                NftReceipt storage receipt = _nftReceipts.push();
+                receipt.collection = collections[i];
+                receipt.tokenId = tokenId;
+                receipt.amount = 1;
+            }
+        }
+    }
+
+    function _tryTokenOfOwnerByIndex(address collection, uint256 index)
+        internal
+        view
+        returns (bool ok, uint256 tokenId)
+    {
+        // forge-lint: disable-next-line(low-level-calls, calls-loop)
+        (bool success, bytes memory data) = collection.staticcall{gas: PROBE_GAS_LIMIT}(
+            abi.encodeWithSelector(TOKEN_OF_OWNER_BY_INDEX_SELECTOR, address(this), index)
+        );
+        if (!success || data.length < 32) return (ok, tokenId);
+        ok = success;
+        tokenId = abi.decode(data, (uint256));
+    }
+
+    function _alreadyCaptured(address collection, uint256 tokenId) internal view returns (bool) {
+        // O(n^2) linear scan; n is tiny (received NFTs per simulation) so it is not worth a set.
+        for (uint256 i = 0; i < _nftReceipts.length; ++i) {
+            if (_nftReceipts[i].collection == collection && _nftReceipts[i].tokenId == tokenId) return true;
+        }
+        return false;
+    }
+
+    /// Post-state metadata capture: staticcall `tokenURI(id)` / `uri(id)` per receipt under a gas
+    /// budget, storing raw returndata. Never reverts — a renderer that burns its budget just leaves
+    /// `tokenUriRaw` empty rather than sinking the whole simulation.
+    function _captureMetadata() internal {
+        for (uint256 i = 0; i < _nftReceipts.length; ++i) {
+            if (gasleft() <= METADATA_RETURN_GAS_RESERVE) break;
+            uint256 available = gasleft() - METADATA_RETURN_GAS_RESERVE;
+            uint256 budget = available < METADATA_GAS_LIMIT ? available : METADATA_GAS_LIMIT;
+
+            NftReceipt storage receipt = _nftReceipts[i];
+            bytes4 selector = receipt.erc1155 ? ERC1155_URI_SELECTOR : TOKEN_URI_SELECTOR;
+            // forge-lint: disable-next-line(low-level-calls, calls-loop)
+            (bool ok, bytes memory data) =
+                receipt.collection.staticcall{gas: budget}(abi.encodeWithSelector(selector, receipt.tokenId));
+            if (ok && data.length > 0) receipt.tokenUriRaw = data;
         }
     }
 

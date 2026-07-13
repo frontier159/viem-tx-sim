@@ -1,4 +1,5 @@
 import type { Address } from "viem";
+import { decodeAbiParameters } from "viem";
 
 import { DEFAULT_SIMULATION_GAS_LIMIT } from "./constants.js";
 import { InvalidSimulationInputError } from "./errors.js";
@@ -6,7 +7,7 @@ import { buildBalanceResults } from "./internal/checkpoints.js";
 import { discoverErc20s, forUserBalanceQueries } from "./internal/queryDiscovery.js";
 import { estimateAssetRequirements } from "./internal/requirements.js";
 import { blockOptionsSpread, type ClientArgs } from "./internal/rpc.js";
-import { runSimulator } from "./internal/simulator.js";
+import { runSimulator, type RawNftReceipt } from "./internal/simulator.js";
 import {
   prepareAllowanceOverrides,
   prepareBalanceOverrides,
@@ -23,6 +24,7 @@ import type {
   PrepareBalanceOverridesArgs,
   EstimateAssetRequirementsArgs,
   EstimatedAssetRequirements,
+  NftReceipt,
   SimulateArgs,
   SimulatedCall,
   SimulationResult,
@@ -250,17 +252,20 @@ async function runSimulate(args: SimulateArgs & ClientArgs): Promise<SimulationR
       token: query.asset,
       account: query.account,
     })),
+    nftCollections: args.nftQueries ?? [],
     debug: args.debug,
     ...blockOptionsSpread(args),
     gas: args.gas,
     ...(args.errorAbi !== undefined ? { errorAbi: args.errorAbi } : {}),
   });
   const balances = buildBalanceResults(args.balanceQueries, result.probeData, calls.length);
+  const nftReceipts = result.probeData.nftReceipts.map(decodeNftReceipt);
 
   if (result.status === "reverted") {
     return {
       status: "reverted",
       ...balances,
+      nftReceipts,
       revertData: result.revertData,
       ...(result.revertReason !== undefined ? { revertReason: result.revertReason } : {}),
       ...(result.revertError !== undefined ? { revertError: result.revertError } : {}),
@@ -269,5 +274,25 @@ async function runSimulate(args: SimulateArgs & ClientArgs): Promise<SimulationR
     };
   }
 
-  return { status: "success", ...balances };
+  return { status: "success", ...balances, nftReceipts };
+}
+
+/** Decodes a ghost-contract NFT receipt, best-effort: malformed/empty `tokenUriRaw` → `tokenUri` undefined. */
+function decodeNftReceipt(raw: RawNftReceipt): NftReceipt {
+  let tokenUri: string | undefined;
+  try {
+    if (raw.tokenUriRaw !== "0x") {
+      [tokenUri] = decodeAbiParameters([{ type: "string" }], raw.tokenUriRaw);
+    }
+  } catch {
+    tokenUri = undefined;
+  }
+
+  return {
+    collection: raw.collection,
+    tokenId: raw.tokenId,
+    amount: raw.amount,
+    standard: raw.erc1155 ? "erc1155" : "erc721",
+    ...(tokenUri !== undefined ? { tokenUri } : {}),
+  };
 }

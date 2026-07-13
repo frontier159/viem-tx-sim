@@ -33,6 +33,7 @@ export type {
   SimulationDebug,
   SimulationDebugEvent,
   SimulationDebugLogger,
+  NftReceipt,
   RequiredAllowance,
   RequiredBalance,
   RevertError,

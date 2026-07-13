@@ -13,6 +13,7 @@ Root modules expose the public API and shared types/errors/constants; internal m
 `balanceQueries.forUser()` is the wallet-style discovery helper: it runs `eth_createAccessList` for each call, filters touched addresses with one simulator call, then returns native + token queries for `from`; `balanceQueries.discoverErc20s()` exposes just the filtered token list.
 Because the simulator runs at `from`, `address(this)` is the user address, queried token balance reads can target any account, and calls execute with `msg.sender == from`.
 Batch calls execute sequentially inside one EVM context, so state changes from earlier calls are visible to later calls.
+When `simulate` receives a non-empty `nftQueries`, the contract records opt-in NFT receipts (received-only) via flag-gated receiver hooks plus a post-batch ERC-721 Enumerable walk and best-effort `tokenURI`/`uri` capture; the flag keeps the OFF path free of any storage write.
 
 Foundry compiles `contracts/TxSimulator.sol`.
 `scripts/generate-txsim-bytecode.mjs` extracts the runtime bytecode and writes `src/generated/txSimulatorBytecode.ts`.

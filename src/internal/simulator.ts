@@ -40,6 +40,16 @@ type ProbeData = {
   balanceCheckpoints: readonly bigint[];
   balanceProbeOk: readonly boolean[];
   permit2Checkpoints: readonly bigint[];
+  nftReceipts: readonly RawNftReceipt[];
+};
+
+/** Ghost-contract `NftReceipt` as decoded from returndata; `tokenUriRaw` is decoded TS-side. */
+export type RawNftReceipt = {
+  collection: Address;
+  tokenId: bigint;
+  amount: bigint;
+  erc1155: boolean;
+  tokenUriRaw: Hex;
 };
 
 type SimulatorBase = {
@@ -62,8 +72,9 @@ export const txSimulatorAbi = parseAbi([
   "struct SimulatedCall { address to; uint256 value; bytes data; }",
   "struct AllowanceProbe { address token; address spender; }",
   "struct BalanceProbe { address token; address account; }",
-  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; address[] observedTokens; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; uint256[] balanceCheckpoints; bool[] balanceProbeOk; uint256[] permit2Checkpoints; }",
-  "function simulate(SimulatedCall[] calls, address[] candidates, AllowanceProbe[] probes, BalanceProbe[] balanceProbes, address permit2, AllowanceProbe[] permit2Probes) returns (SimulationResult)",
+  "struct NftReceipt { address collection; uint256 tokenId; uint256 amount; bool erc1155; bytes tokenUriRaw; }",
+  "struct SimulationResult { bool success; uint256 failingCallIndex; bytes revertData; address[] observedTokens; uint256[] maxTokenOutflows; uint256 maxNativeOutflow; uint256[] allowanceCheckpoints; uint256[] balanceCheckpoints; bool[] balanceProbeOk; uint256[] permit2Checkpoints; NftReceipt[] nftReceipts; }",
+  "function simulate(SimulatedCall[] calls, address[] candidates, AllowanceProbe[] probes, BalanceProbe[] balanceProbes, address permit2, AllowanceProbe[] permit2Probes, address[] nftCollections) returns (SimulationResult)",
   "function isValidSignature(bytes32 hash, bytes signature) view returns (bytes4)",
 ]);
 
@@ -78,6 +89,7 @@ export async function runSimulator(
     balanceProbes?: readonly { token: Address | "native"; account: Address }[];
     permit2?: Address;
     permit2Probes?: readonly { token: Address; spender: Address }[];
+    nftCollections?: readonly Address[];
     debugStep?: DebugStep;
     errorAbi?: Abi;
   },
@@ -101,6 +113,7 @@ export async function runSimulator(
       balanceProbes,
       args.permit2 ?? zeroAddress,
       args.permit2Probes ?? [],
+      args.nftCollections ?? [],
     ],
   });
 
@@ -167,6 +180,7 @@ export async function runSimulator(
     balanceCheckpoints: result.balanceCheckpoints,
     balanceProbeOk: result.balanceProbeOk,
     permit2Checkpoints: result.permit2Checkpoints,
+    nftReceipts: result.nftReceipts,
   };
 
   if (!result.success) {
