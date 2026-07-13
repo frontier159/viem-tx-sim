@@ -26,17 +26,22 @@ contract TxSimulator is IERC1271Like {
     /// "not an NFT mint" and skipped, bounding the `tokenOfOwnerByIndex` probe loop.
     uint256 internal constant MAX_ENUMERATE_PER_COLLECTION = 50;
     /// Per-receipt gas budget for post-state `tokenURI`/`uri` metadata capture. On-chain SVG
-    /// renderers are genuinely heavy; walletchan ships the same 5M/500k split.
+    /// renderers are genuinely heavy; walletchan ships the same 5M/500k split. The budget bounds the
+    /// callee's execution, and the return copy is separately size-capped at `METADATA_MAX_RETURN_BYTES`
+    /// so a hostile renderer cannot force a huge outer-frame returndata copy within its gas budget.
     uint256 internal constant METADATA_GAS_LIMIT = 5_000_000;
     /// Gas reserved so metadata capture can never starve the ABI-encoding of the return value.
     uint256 internal constant METADATA_RETURN_GAS_RESERVE = 500_000;
+    /// Hard cap on captured metadata returndata. Solidity's automatic returndata copy charges the
+    /// OUTER frame, so a renderer returning megabytes within its gas budget would still expand this
+    /// frame's memory toward OOG; oversized returns are dropped (empty `tokenUriRaw`) instead.
+    uint256 internal constant METADATA_MAX_RETURN_BYTES = 65_536;
 
-    /// Received-NFT receipts, recorded by the receiver hooks and the Enumerable walk when capture is
-    /// enabled. Slot 0 — guaranteed empty at the start of every `eth_call`.
-    NftReceipt[] private _nftReceipts;
-    /// Capture gate: set in `simulate` only when `nftCollections` is non-empty, so the OFF path pays
-    /// no SSTORE and the hooks stay effectively pure (slot 1).
-    bool private _nftCaptureEnabled;
+    /// The ghost executes at `from`, whose REAL storage persists under a code-only state override.
+    /// Low slots collide with smart-wallet layouts (a Safe proxy keeps its singleton at slot 0), so
+    /// capture state lives at namespaced hashed slots instead (ERC-7201 spirit).
+    bytes32 internal constant NFT_RECEIPTS_SLOT = keccak256("viem-tx-sim.TxSimulator.nftReceipts");
+    bytes32 internal constant NFT_CAPTURE_ENABLED_SLOT = keccak256("viem-tx-sim.TxSimulator.nftCaptureEnabled");
 
     struct SimulatedCall {
         address to;
@@ -121,7 +126,7 @@ contract TxSimulator is IERC1271Like {
         // pure. Snapshot per-collection balances before the batch for the post-state Enumerable walk.
         NftSnapshot memory nftSnapshot;
         if (nftCollections.length > 0) {
-            _nftCaptureEnabled = true;
+            _setCaptureEnabled();
             nftSnapshot = _snapshotNftBalances(nftCollections);
         }
 
@@ -156,7 +161,7 @@ contract TxSimulator is IERC1271Like {
         if (nftCollections.length > 0) {
             _walkEnumerable(nftCollections, nftSnapshot);
             _captureMetadata();
-            result.nftReceipts = _nftReceipts;
+            result.nftReceipts = _receiptsStorage();
         }
     }
 
@@ -211,12 +216,7 @@ contract TxSimulator is IERC1271Like {
     }
 
     function onERC721Received(address, address, uint256 tokenId, bytes calldata) external returns (bytes4) {
-        if (_nftCaptureEnabled) {
-            NftReceipt storage receipt = _nftReceipts.push();
-            receipt.collection = msg.sender;
-            receipt.tokenId = tokenId;
-            receipt.amount = 1;
-        }
+        if (_captureEnabled()) _recordReceipt(msg.sender, tokenId, 1, false);
         return 0x150b7a02;
     }
 
@@ -224,13 +224,7 @@ contract TxSimulator is IERC1271Like {
         external
         returns (bytes4)
     {
-        if (_nftCaptureEnabled) {
-            NftReceipt storage receipt = _nftReceipts.push();
-            receipt.collection = msg.sender;
-            receipt.tokenId = id;
-            receipt.amount = value;
-            receipt.erc1155 = true;
-        }
+        if (_captureEnabled()) _recordReceipt(msg.sender, id, value, true);
         return 0xf23a6e61;
     }
 
@@ -238,13 +232,9 @@ contract TxSimulator is IERC1271Like {
         external
         returns (bytes4)
     {
-        if (_nftCaptureEnabled) {
+        if (_captureEnabled()) {
             for (uint256 i = 0; i < ids.length; ++i) {
-                NftReceipt storage receipt = _nftReceipts.push();
-                receipt.collection = msg.sender;
-                receipt.tokenId = ids[i];
-                receipt.amount = values[i];
-                receipt.erc1155 = true;
+                _recordReceipt(msg.sender, ids[i], values[i], true);
             }
         }
         return 0xbc197c81;
@@ -258,6 +248,49 @@ contract TxSimulator is IERC1271Like {
     }
 
     receive() external payable {}
+
+    function _receiptsStorage() private pure returns (NftReceipt[] storage receipts) {
+        bytes32 slot = NFT_RECEIPTS_SLOT;
+        // forge-lint: disable-next-line(inline-assembly)
+        assembly ("memory-safe") {
+            receipts.slot := slot
+        }
+    }
+
+    function _captureEnabled() private view returns (bool enabled) {
+        bytes32 slot = NFT_CAPTURE_ENABLED_SLOT;
+        // forge-lint: disable-next-line(inline-assembly)
+        assembly ("memory-safe") {
+            enabled := sload(slot)
+        }
+    }
+
+    function _setCaptureEnabled() private {
+        bytes32 slot = NFT_CAPTURE_ENABLED_SLOT;
+        // forge-lint: disable-next-line(inline-assembly)
+        assembly ("memory-safe") {
+            sstore(slot, 1)
+        }
+    }
+
+    /// Single recording path for hooks and the Enumerable walk. Aggregates duplicates so the public
+    /// result carries one entry per (collection, tokenId, standard): a repeated ERC-1155 (collection,
+    /// id) adds to the existing amount; a repeated ERC-721 is a no-op (a token id is owned once).
+    function _recordReceipt(address collection, uint256 tokenId, uint256 amount, bool erc1155) private {
+        NftReceipt[] storage receipts = _receiptsStorage();
+        for (uint256 i = 0; i < receipts.length; ++i) {
+            if (receipts[i].collection == collection && receipts[i].tokenId == tokenId && receipts[i].erc1155 == erc1155)
+            {
+                if (erc1155) receipts[i].amount += amount;
+                return;
+            }
+        }
+        NftReceipt storage receipt = receipts.push();
+        receipt.collection = collection;
+        receipt.tokenId = tokenId;
+        receipt.amount = amount;
+        receipt.erc1155 = erc1155;
+    }
 
     function _snapshotTokens(address[] calldata candidates) internal view returns (TokenState memory tokenState) {
         tokenState.beforeBalances = new uint256[](candidates.length);
@@ -301,11 +334,10 @@ contract TxSimulator is IERC1271Like {
 
             for (uint256 idx = beforeBalance; idx < afterBalance; ++idx) {
                 (bool ok, uint256 tokenId) = _tryTokenOfOwnerByIndex(collections[i], idx);
-                if (!ok || _alreadyCaptured(collections[i], tokenId)) continue;
-                NftReceipt storage receipt = _nftReceipts.push();
-                receipt.collection = collections[i];
-                receipt.tokenId = tokenId;
-                receipt.amount = 1;
+                if (!ok) continue;
+                // `_recordReceipt` dedups against hook-recorded ids, so the same token surfaced by both
+                // the hook and this walk stays a single entry.
+                _recordReceipt(collections[i], tokenId, 1, false);
             }
         }
     }
@@ -324,29 +356,45 @@ contract TxSimulator is IERC1271Like {
         tokenId = abi.decode(data, (uint256));
     }
 
-    function _alreadyCaptured(address collection, uint256 tokenId) internal view returns (bool) {
-        // O(n^2) linear scan; n is tiny (received NFTs per simulation) so it is not worth a set.
-        for (uint256 i = 0; i < _nftReceipts.length; ++i) {
-            if (_nftReceipts[i].collection == collection && _nftReceipts[i].tokenId == tokenId) return true;
-        }
-        return false;
-    }
-
     /// Post-state metadata capture: staticcall `tokenURI(id)` / `uri(id)` per receipt under a gas
     /// budget, storing raw returndata. Never reverts — a renderer that burns its budget just leaves
     /// `tokenUriRaw` empty rather than sinking the whole simulation.
     function _captureMetadata() internal {
-        for (uint256 i = 0; i < _nftReceipts.length; ++i) {
+        NftReceipt[] storage receipts = _receiptsStorage();
+        for (uint256 i = 0; i < receipts.length; ++i) {
             if (gasleft() <= METADATA_RETURN_GAS_RESERVE) break;
             uint256 available = gasleft() - METADATA_RETURN_GAS_RESERVE;
             uint256 budget = available < METADATA_GAS_LIMIT ? available : METADATA_GAS_LIMIT;
 
-            NftReceipt storage receipt = _nftReceipts[i];
+            NftReceipt storage receipt = receipts[i];
             bytes4 selector = receipt.erc1155 ? ERC1155_URI_SELECTOR : TOKEN_URI_SELECTOR;
-            // forge-lint: disable-next-line(low-level-calls, calls-loop)
             (bool ok, bytes memory data) =
-                receipt.collection.staticcall{gas: budget}(abi.encodeWithSelector(selector, receipt.tokenId));
+                _boundedMetadataCall(receipt.collection, abi.encodeWithSelector(selector, receipt.tokenId), budget);
             if (ok && data.length > 0) receipt.tokenUriRaw = data;
+        }
+    }
+
+    /// Metadata staticcall with a size-capped return copy. A plain `staticcall{gas: budget}` bounds the
+    /// callee but Solidity's automatic returndata copy charges THIS frame, so a hostile renderer could
+    /// force a huge memory expansion within its budget. Capping `returndatasize()` before copying keeps
+    /// the outer-frame cost bounded; oversized or failed calls return empty `data` (valid empty bytes).
+    function _boundedMetadataCall(address target, bytes memory callData, uint256 gasBudget)
+        private
+        view
+        returns (bool ok, bytes memory data)
+    {
+        uint256 maxBytes = METADATA_MAX_RETURN_BYTES;
+        // forge-lint: disable-next-line(inline-assembly)
+        assembly ("memory-safe") {
+            ok := staticcall(gasBudget, target, add(callData, 0x20), mload(callData), 0, 0)
+            let size := returndatasize()
+            if gt(size, maxBytes) { ok := 0 }
+            if ok {
+                data := mload(0x40)
+                mstore(data, size)
+                returndatacopy(add(data, 0x20), 0, size)
+                mstore(0x40, add(add(data, 0x20), and(add(size, 31), not(31))))
+            }
         }
     }
 
