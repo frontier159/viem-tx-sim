@@ -2,11 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {IERC1271Like} from "./interfaces/IERC1271Like.sol";
+import {IERC165} from "./interfaces/IERC165.sol";
 
-// `supportsInterface` is implemented without inheriting IERC165: the ghost advertises exactly three
-// receiver ids (see the function's docblock) and gains nothing from an interface file for that.
-// forge-lint: disable-next-line(missing-inheritance)
-contract TxSimulator is IERC1271Like {
+contract TxSimulator is IERC1271Like, IERC165 {
     bytes4 internal constant ERC1271_MAGIC_VALUE = 0x1626ba7e;
     bytes4 internal constant ERC1271_INVALID_VALUE = 0xffffffff;
     bytes4 internal constant BALANCE_OF_SELECTOR = 0x70a08231;
@@ -553,13 +551,19 @@ contract TxSimulator is IERC1271Like {
         view
         returns (bool ok, uint256 value)
     {
-        // return-bomb: accepted residual — the gas cap bounds callee compute; a hostile probe target
-        // returning oversized data degrades the budget rather than corrupting results (see plan 044).
-        // forge-lint: disable-next-line(low-level-calls, calls-loop, return-bomb)
-        (bool success, bytes memory data) = target.staticcall{gas: PROBE_GAS_LIMIT}(callData);
-        if (!success || data.length < minReturnBytes) return (ok, value);
-        ok = success;
-        value = abi.decode(data, (uint256));
+        // Bounded read: only the first 32 bytes of returndata are ever copied (into scratch space),
+        // so a hostile probe target cannot charge this frame memory expansion via an oversized
+        // return. `returndatasize()` still validates the getter's full ABI shape against
+        // `minReturnBytes` without copying it.
+        // forge-lint: disable-next-line(inline-assembly)
+        assembly ("memory-safe") {
+            let success := staticcall(PROBE_GAS_LIMIT, target, add(callData, 0x20), mload(callData), 0, 0)
+            if and(success, iszero(lt(returndatasize(), minReturnBytes))) {
+                returndatacopy(0, 0, 32)
+                value := mload(0)
+                ok := 1
+            }
+        }
     }
 
     function _tryBalanceOf(address token, address owner) internal view returns (bool ok, uint256 balance) {
