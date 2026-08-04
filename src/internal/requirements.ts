@@ -5,10 +5,11 @@ import { InvalidSimulationInputError } from "../errors.js";
 import type {
   AllowanceSlotPair,
   EstimatedAssetRequirements,
-  EstimateAssetRequirementsArgs,
+  EstimateAssetRequirementsParameters,
   PreparedPermit2Overrides,
   RequiredAllowance,
   SimulatedCall,
+  WithNormalizedCalls,
 } from "../types.js";
 import { OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
 import { probeRow } from "./checkpoints.js";
@@ -44,7 +45,7 @@ type AllowanceProbe = {
 
 /** @internal Implements {@link TxSimulator.tokenOverrides.estimateRequirements}. Prefer the instance API from the package root. */
 export async function estimateAssetRequirements(
-  args: EstimateAssetRequirementsArgs & ClientArgs,
+  args: WithNormalizedCalls<EstimateAssetRequirementsParameters> & ClientArgs,
 ): Promise<EstimatedAssetRequirements> {
   if (args.calls.length === 0) {
     throw new InvalidSimulationInputError("estimateAssetRequirements requires at least one call.");

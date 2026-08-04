@@ -1,5 +1,5 @@
-import type { Address } from "viem";
-import { decodeAbiParameters } from "viem";
+import type { Address, Call, Hex } from "viem";
+import { concat, decodeAbiParameters, encodeFunctionData } from "viem";
 
 import { DEFAULT_SIMULATION_GAS_LIMIT } from "./constants.js";
 import { InvalidSimulationInputError } from "./errors.js";
@@ -17,21 +17,24 @@ import {
 import type {
   BalanceQuery,
   BatchGasEstimate,
-  EstimateBatchGasArgs,
-  ForPermit2AllowancesArgs,
-  ForUserBalanceQueriesArgs,
+  EstimateBatchGasParameters,
+  ForPermit2AllowancesParameters,
+  ForUserBalanceQueriesParameters,
+  NativeBalanceOverride,
   PreparedAllowanceOverrides,
   PreparedBalanceOverrides,
   PreparedPermit2Overrides,
-  PrepareAllowanceOverridesArgs,
-  PrepareBalanceOverridesArgs,
-  EstimateAssetRequirementsArgs,
+  PrepareAllowanceOverridesParameters,
+  PrepareBalanceOverridesParameters,
+  EstimateAssetRequirementsParameters,
   EstimatedAssetRequirements,
   NftReceipt,
-  SimulateArgs,
+  SimulateParameters,
   SimulatedCall,
   SimulationResult,
+  TokenSlotOverride,
   TxSimulatorConfig,
+  WithNormalizedCalls,
 } from "./types.js";
 
 type BoundCallDefaults = {
@@ -41,7 +44,7 @@ type BoundCallDefaults = {
 };
 
 /**
- * Bound transaction simulator for one viem public client.
+ * Bound transaction simulator for one viem client.
  *
  * Bind the RPC client once, then pass `from` per call so applications can switch accounts without
  * rebuilding the simulator. Per-call `gas` and `debug` override defaults supplied to
@@ -55,7 +58,8 @@ export interface TxSimulator {
    * Balances are observed only for `balanceQueries`; query the tokens you forge if you want to
    * observe them. Transaction reverts return `status: "reverted"` instead of throwing.
    *
-   * @throws InvalidSimulationInputError when `calls` is empty.
+   * @throws InvalidSimulationInputError when `calls` is empty, or when `tokenSlotOverrides` or
+   * `nativeBalanceOverrides` contains a duplicate account.
    * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides or
    * returns undecodable simulator output.
    *
@@ -69,7 +73,7 @@ export interface TxSimulator {
    * });
    * ```
    */
-  simulate: (args: SimulateArgs) => Promise<SimulationResult>;
+  simulate: (args: SimulateParameters) => Promise<SimulationResult>;
 
   readonly balanceQueries: {
     /**
@@ -85,7 +89,7 @@ export interface TxSimulator {
      * @throws AccessListUnsupportedError when the RPC endpoint cannot provide access lists.
      * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
      */
-    forUser: (args: ForUserBalanceQueriesArgs) => Promise<BalanceQuery[]>;
+    forUser: (args: ForUserBalanceQueriesParameters) => Promise<BalanceQuery[]>;
 
     /**
      * Discovers ERC-20 contracts touched by the calls that answer `balanceOf(from)`.
@@ -100,7 +104,7 @@ export interface TxSimulator {
      * @throws AccessListUnsupportedError when the RPC endpoint cannot provide access lists.
      * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
      */
-    discoverErc20s: (args: ForUserBalanceQueriesArgs) => Promise<Address[]>;
+    discoverErc20s: (args: ForUserBalanceQueriesParameters) => Promise<Address[]>;
   };
 
   readonly tokenOverrides: {
@@ -114,7 +118,7 @@ export interface TxSimulator {
      * @throws AccessListUnsupportedError when the RPC endpoint cannot provide access lists.
      * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
      */
-    forBalances: (args: PrepareBalanceOverridesArgs) => Promise<PreparedBalanceOverrides>;
+    forBalances: (args: PrepareBalanceOverridesParameters) => Promise<PreparedBalanceOverrides>;
 
     /**
      * Prepares ERC-20 allowance overrides for `from` and the requested token/spender pairs.
@@ -126,7 +130,9 @@ export interface TxSimulator {
      * @throws AccessListUnsupportedError when the RPC endpoint cannot provide access lists.
      * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
      */
-    forAllowances: (args: PrepareAllowanceOverridesArgs) => Promise<PreparedAllowanceOverrides>;
+    forAllowances: (
+      args: PrepareAllowanceOverridesParameters,
+    ) => Promise<PreparedAllowanceOverrides>;
 
     /**
      * Prepares Permit2 internal-allowance overrides for `from` and the requested token/spender pairs.
@@ -141,7 +147,9 @@ export interface TxSimulator {
      *
      * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides.
      */
-    forPermit2Allowances: (args: ForPermit2AllowancesArgs) => Promise<PreparedPermit2Overrides>;
+    forPermit2Allowances: (
+      args: ForPermit2AllowancesParameters,
+    ) => Promise<PreparedPermit2Overrides>;
 
     /**
      * Estimates the balances and approvals needed to execute the observed path.
@@ -166,7 +174,7 @@ export interface TxSimulator {
      * returns undecodable simulator output.
      */
     estimateRequirements: (
-      args: EstimateAssetRequirementsArgs,
+      args: EstimateAssetRequirementsParameters,
     ) => Promise<EstimatedAssetRequirements>;
   };
 
@@ -187,15 +195,16 @@ export interface TxSimulator {
      * using it as a per-leg limit. On a revert, `byCall` entries from `failingCallIndex` onward are all
      * `0n`. Transaction reverts are reported via `failingCallIndex`, not thrown.
      *
-     * @throws InvalidSimulationInputError when `calls` is empty.
+     * @throws InvalidSimulationInputError when `calls` is empty, or when `tokenSlotOverrides` or
+     * `nativeBalanceOverrides` contains a duplicate account.
      * @throws StateOverrideUnsupportedError when the RPC endpoint cannot execute state overrides or
      * returns undecodable simulator output.
      */
-    estimateBatch: (args: EstimateBatchGasArgs) => Promise<BatchGasEstimate>;
+    estimateBatch: (args: EstimateBatchGasParameters) => Promise<BatchGasEstimate>;
   };
 }
 
-/** Factory for {@link TxSimulator} instances bound to one viem public client. */
+/** Factory for {@link TxSimulator} instances bound to one viem client. */
 export const TxSimulator = {
   /**
    * Creates a simulator with optional default gas and debug settings.
@@ -233,12 +242,28 @@ export const TxSimulator = {
     };
 
     return {
-      simulate: (args) => runSimulate({ ...args, ...revertDefaults(args), client: bound.client }),
+      simulate: (args) =>
+        runSimulate({
+          ...args,
+          ...revertDefaults(args),
+          calls: normalizeCalls(args.calls),
+          client: bound.client,
+        }),
       balanceQueries: {
         forUser: (args) =>
-          forUserBalanceQueries({ ...args, ...defaults(args), client: bound.client }),
+          forUserBalanceQueries({
+            ...args,
+            ...defaults(args),
+            calls: normalizeCalls(args.calls),
+            client: bound.client,
+          }),
         discoverErc20s: (args) =>
-          discoverErc20s({ ...args, ...defaults(args), client: bound.client }),
+          discoverErc20s({
+            ...args,
+            ...defaults(args),
+            calls: normalizeCalls(args.calls),
+            client: bound.client,
+          }),
       },
       tokenOverrides: {
         forBalances: (args) =>
@@ -251,33 +276,94 @@ export const TxSimulator = {
           estimateAssetRequirements({
             ...args,
             ...revertDefaults(args),
+            calls: normalizeCalls(args.calls),
             client: bound.client,
           }),
       },
       gas: {
         estimateBatch: (args) =>
-          runEstimateBatchGas({ ...args, ...defaults(args), client: bound.client }),
+          runEstimateBatchGas({
+            ...args,
+            ...defaults(args),
+            calls: normalizeCalls(args.calls),
+            client: bound.client,
+          }),
       },
     };
   },
 };
 
-async function runSimulate(args: SimulateArgs & ClientArgs): Promise<SimulationResult> {
+/**
+ * Normalizes viem's `Call` union to the simulator's internal shape, mirroring `sendCalls`' own
+ * encode (`node_modules/viem/_esm/actions/wallet/sendCalls.js`): the `abi` encoding wins when both
+ * `abi` and `data` are present, and `dataSuffix` is concatenated onto the encoded/raw data.
+ */
+function normalizeCalls(calls: readonly Call[]): SimulatedCall[] {
+  return calls.map((call, index) => {
+    let data: Hex | undefined;
+    try {
+      data = call.abi
+        ? encodeFunctionData({ abi: call.abi, functionName: call.functionName, args: call.args })
+        : call.data;
+    } catch (cause) {
+      throw new InvalidSimulationInputError(
+        `calls[${index}]: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+    }
+    return {
+      to: call.to,
+      data: call.dataSuffix && data ? concat([data, call.dataSuffix]) : (data ?? "0x"),
+      value: call.value ?? 0n,
+    };
+  });
+}
+
+/**
+ * Rejects duplicate user-supplied overrides. Mirrors viem's `AccountStateConflictError` for
+ * accounts; the per-slot check is stricter than viem's own last-wins slot map, consistent with the
+ * same reject-ambiguity principle. Validates user input only — `buildStateOverride`'s cross-source
+ * merge (ghost code + native balance + token slots landing on one address) stays permissive.
+ */
+function assertNoOverrideConflicts(
+  tokenSlotOverrides: readonly TokenSlotOverride[],
+  nativeBalanceOverrides: readonly NativeBalanceOverride[],
+): void {
+  const slots = new Set<string>();
+  for (const override of tokenSlotOverrides) {
+    const key = `${override.token.toLowerCase()}:${override.slot.toLowerCase()}`;
+    if (slots.has(key)) {
+      throw new InvalidSimulationInputError(
+        `Duplicate tokenSlotOverrides entry for token ${override.token} slot ${override.slot}.`,
+      );
+    }
+    slots.add(key);
+  }
+  const accounts = new Set<string>();
+  for (const override of nativeBalanceOverrides) {
+    const key = override.account.toLowerCase();
+    if (accounts.has(key)) {
+      throw new InvalidSimulationInputError(
+        `Duplicate nativeBalanceOverrides entry for account ${override.account}.`,
+      );
+    }
+    accounts.add(key);
+  }
+}
+
+async function runSimulate(
+  args: WithNormalizedCalls<SimulateParameters> & ClientArgs,
+): Promise<SimulationResult> {
   if (args.calls.length === 0) {
     throw new InvalidSimulationInputError("simulate requires at least one call.");
   }
+  assertNoOverrideConflicts(args.tokenSlotOverrides ?? [], args.nativeBalanceOverrides ?? []);
 
-  const calls = args.calls.map((call) => ({
-    to: call.to,
-    data: call.data,
-    value: call.value ?? 0n,
-  })) satisfies SimulatedCall[];
   const tokenSlotOverrides = args.tokenSlotOverrides ?? [];
 
   const result = await runSimulator({
     client: args.client,
     from: args.from,
-    calls,
+    calls: args.calls,
     candidates: [],
     tokenSlotOverrides,
     extraStateOverrides: (args.nativeBalanceOverrides ?? []).map((override) => ({
@@ -294,7 +380,7 @@ async function runSimulate(args: SimulateArgs & ClientArgs): Promise<SimulationR
     gas: args.gas,
     ...(args.errorAbi !== undefined ? { errorAbi: args.errorAbi } : {}),
   });
-  const balances = buildBalanceResults(args.balanceQueries, result.probeData, calls.length);
+  const balances = buildBalanceResults(args.balanceQueries, result.probeData, args.calls.length);
   const nftReceipts = result.probeData.nftReceipts.map(decodeNftReceipt);
 
   if (result.status === "reverted") {
@@ -314,22 +400,17 @@ async function runSimulate(args: SimulateArgs & ClientArgs): Promise<SimulationR
 }
 
 async function runEstimateBatchGas(
-  args: EstimateBatchGasArgs & ClientArgs,
+  args: WithNormalizedCalls<EstimateBatchGasParameters> & ClientArgs,
 ): Promise<BatchGasEstimate> {
   if (args.calls.length === 0) {
     throw new InvalidSimulationInputError("gas.estimateBatch requires at least one call.");
   }
-
-  const calls = args.calls.map((call) => ({
-    to: call.to,
-    data: call.data,
-    value: call.value ?? 0n,
-  })) satisfies SimulatedCall[];
+  assertNoOverrideConflicts(args.tokenSlotOverrides ?? [], args.nativeBalanceOverrides ?? []);
 
   const result = await runBatchGas({
     client: args.client,
     from: args.from,
-    calls,
+    calls: args.calls,
     tokenSlotOverrides: args.tokenSlotOverrides ?? [],
     extraStateOverrides: (args.nativeBalanceOverrides ?? []).map((override) => ({
       address: override.account,
@@ -341,7 +422,7 @@ async function runEstimateBatchGas(
   });
 
   const { failingCallIndex } = result;
-  const byCall = calls.map((call, index) => {
+  const byCall = args.calls.map((call, index) => {
     // Zero-tail: from the failing call onward every field is 0n (matches the contract zero-fill).
     if (failingCallIndex !== null && index >= failingCallIndex) {
       return { executionGas: 0n, intrinsicAndCalldataGas: 0n, suggestedLimit: 0n };

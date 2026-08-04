@@ -19,6 +19,7 @@ import {
   type SimulationDebugEvent,
   type SimulationResult,
 } from "../src/index.js";
+import type { BlockOptions } from "../src/types.js";
 import { artifact } from "./helpers/artifacts.js";
 import { deploy, write } from "./helpers/contracts.js";
 import { type AnvilTestContext, startAnvil } from "./helpers/anvil.js";
@@ -42,6 +43,30 @@ describe("viem-tx-sim", () => {
     const result = await sim.simulate({
       from: ctx.account.address,
       calls: [{ to: ctx.secondAccount.address, data: "0x", value }],
+      balanceQueries: [{ asset: "native", account: ctx.account.address }],
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.balanceDeltas).toEqual([
+      {
+        asset: "native",
+        account: ctx.account.address,
+        before,
+        after: before - value,
+        delta: -value,
+        byCall: [-value],
+      },
+    ]);
+    expect(result.unresolved).toEqual([]);
+  });
+
+  it("reports native value deltas for a data-less call", async () => {
+    const value = parseEther("1");
+    const before = await ctx.publicClient.getBalance({ address: ctx.account.address });
+    // No `data` key at all — viem's Call union makes it optional; normalizeCalls defaults to "0x".
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: ctx.secondAccount.address, value }],
       balanceQueries: [{ asset: "native", account: ctx.account.address }],
     });
 
@@ -284,6 +309,64 @@ describe("viem-tx-sim", () => {
     });
   });
 
+  it("simulates an abi-form call identically to the data-form equivalent", async () => {
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
+
+    // { abi, functionName, args } instead of pre-encoded data — the same array shape sendCalls accepts.
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [
+        {
+          to: token.address,
+          abi: token.abi,
+          functionName: "transfer",
+          args: [ctx.secondAccount.address, 250n],
+        },
+      ],
+      balanceQueries: tokenQueries(token.address),
+    });
+
+    expect(result.status).toBe("success");
+    expect(balanceDelta(result, token.address)).toEqual({
+      asset: token.address,
+      account: ctx.account.address,
+      before: 1_000n,
+      after: 750n,
+      delta: -250n,
+      byCall: [-250n],
+    });
+  });
+
+  it("appends dataSuffix without corrupting decoding of the underlying call", async () => {
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
+
+    const data = encodeFunctionData({
+      abi: token.abi,
+      functionName: "transfer",
+      args: [ctx.secondAccount.address, 250n],
+    });
+    // Standard ABI decoding ignores trailing bytes past the declared parameters, so appending
+    // dataSuffix must not change the outcome — this proves the concat happened without corrupting
+    // the selector/args.
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: token.address, data, dataSuffix: "0x1234" }],
+      balanceQueries: tokenQueries(token.address),
+    });
+
+    expect(result.status).toBe("success");
+    expect(balanceDelta(result, token.address)).toEqual({
+      asset: token.address,
+      account: ctx.account.address,
+      before: 1_000n,
+      after: 750n,
+      delta: -250n,
+      byCall: [-250n],
+    });
+  });
+
   it("supports safe NFT receipt at the injected account", async () => {
     const nft = await deploy(ctx, "MockERC721.sol", "MockERC721");
     const data = encodeFunctionData({
@@ -503,6 +586,42 @@ describe("viem-tx-sim", () => {
     expect(
       events.filter((event) => event.step === "txSimulator.simulate" && event.phase === "start"),
     ).toHaveLength(1);
+  });
+
+  it("discovers wallet balance queries from the access list at a pinned block hash", async () => {
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    const spender = await deploy(ctx, "StoredTokenSpender.sol", "StoredTokenSpender", [
+      token.address,
+    ]);
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
+    await write(ctx, token, "approve", [spender.address, 123n]);
+    const pinned = await ctx.publicClient.getBlock();
+
+    const data = encodeFunctionData({
+      abi: spender.abi,
+      functionName: "pull",
+      args: [123n],
+    });
+    const calls = [{ to: spender.address, data }];
+    // blockHash is reachable through eth_createAccessList via every discovery/preparation method,
+    // not just simulate()'s eth_call — this is the only tested path, since viem's own
+    // createAccessList action has no blockHash support (this library's raw request does).
+    const byBlockHash = await sim.balanceQueries.forUser({
+      from: ctx.account.address,
+      calls,
+      blockHash: pinned.hash,
+    });
+    const byBlockNumber = await sim.balanceQueries.forUser({
+      from: ctx.account.address,
+      calls,
+      blockNumber: pinned.number ?? undefined,
+    });
+
+    expect(byBlockHash).toEqual(byBlockNumber);
+    expect(byBlockHash).toEqual([
+      { asset: "native", account: ctx.account.address },
+      { asset: token.address, account: ctx.account.address },
+    ]);
   });
 
   it("discovers ERC-20s for wallet balance queries", async () => {
@@ -1069,6 +1188,43 @@ describe("viem-tx-sim", () => {
     // `before` = the pre-second-mint balance, proving blockNumber threaded through
     // both the state read and the call (latest would show 1_500n).
     expect(balanceDelta(result, token.address)).toMatchObject({ before: 1_000n, delta: -1n });
+  });
+
+  it("reads state and executes at a pinned historical block hash (EIP-1898)", async () => {
+    const token = await deploy(ctx, "TestToken.sol", "TestToken", ["Token", "TKN", 18]);
+    await write(ctx, token, "mint", [ctx.account.address, 1_000n]);
+    // getBlock (unlike getBlockNumber) has no viem-side cache to bypass, so no cacheTime needed.
+    const pinned = await ctx.publicClient.getBlock();
+    await write(ctx, token, "mint", [ctx.account.address, 500n]);
+
+    const data = encodeFunctionData({
+      abi: token.abi,
+      functionName: "transfer",
+      args: [ctx.secondAccount.address, 1n],
+    });
+    const result = await sim.simulate({
+      from: ctx.account.address,
+      calls: [{ to: token.address, data }],
+      balanceQueries: [{ asset: token.address, account: ctx.account.address }],
+      blockHash: pinned.hash,
+    });
+
+    expect(result.status).toBe("success");
+    // `before` = the pre-second-mint balance, proving blockHash threaded through
+    // both the state read and the call (latest would show 1_500n).
+    expect(balanceDelta(result, token.address)).toMatchObject({ before: 1_000n, delta: -1n });
+  });
+
+  it("rejects setting both block selectors at the type level", () => {
+    // @ts-expect-error — mutually exclusive, mirroring viem's CallParameters. If this stops
+    // erroring the union collapsed back into a both-set-plus-precedence rule.
+    const bothSelectors: BlockOptions = { blockNumber: 1n, blockTag: "latest" };
+    expect(bothSelectors.blockNumber).toBe(1n);
+
+    // @ts-expect-error — blockHash's branch stamps blockNumber as undefined; setting both is
+    // unrepresentable, same as the blockNumber/blockTag pair above.
+    const numberAndHash: BlockOptions = { blockNumber: 1n, blockHash: zeroHash };
+    expect(numberAndHash.blockNumber).toBe(1n);
   });
 
   function tokenQueries(asset: Address, account = ctx.account.address): BalanceQuery[] {

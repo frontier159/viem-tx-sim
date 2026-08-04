@@ -1,6 +1,6 @@
-import type { Abi, Address, BlockTag, Hex, PublicClient } from "viem";
+import type { Abi, Address, BlockTag, Call, Client, Hex } from "viem";
 
-/** One transaction-like call to execute during a simulation batch. */
+/** Normalized call executed by the simulator; public methods accept viem's `Call` union and normalize to this. */
 export type SimulatedCall = {
   /** Target contract or recipient address. */
   to: Address;
@@ -9,6 +9,19 @@ export type SimulatedCall = {
   /** Native value to send with this call; omitted means zero. */
   value?: bigint;
 };
+
+/**
+ * Internal: a public parameters type with `calls` already normalized.
+ * The `T extends unknown` conditional is LOAD-BEARING: it distributes over the
+ * BlockOptions union branches. A plain `Omit<T, "calls">` collapses the union
+ * into one flat object, which (a) no longer satisfies `blockOptionsSpread`'s
+ * `BlockOptions` parameter (TS2345 at six call sites) and (b) silently
+ * re-legalizes setting blockNumber and blockTag together on every internal
+ * signature. Do not simplify it away.
+ */
+export type WithNormalizedCalls<T extends { calls: readonly Call[] }> = T extends unknown
+  ? Omit<T, "calls"> & { calls: readonly SimulatedCall[] }
+  : never;
 
 /** One balance to observe during simulation. `asset` is `"native"` or an ERC-20 address. */
 export type BalanceQuery = {
@@ -64,12 +77,38 @@ export type SimulationDebugLogger = (event: SimulationDebugEvent) => void;
 /** Debug option: `true` logs to the console, a callback receives structured events. */
 export type SimulationDebug = boolean | SimulationDebugLogger;
 
+/**
+ * Block selector, mirroring viem's `CallParameters`: a number pins a block, a tag floats, and a
+ * hash pins via EIP-1898 — setting more than one selector is not representable. Unlike viem's own
+ * type, `requireCanonical` without `blockHash` is also unrepresentable (viem allows it and throws
+ * at runtime; this union won't compile it).
+ */
+export type BlockOptions =
+  | {
+      /** Historical block number to simulate against. */
+      blockNumber?: bigint;
+      blockTag?: undefined;
+      blockHash?: undefined;
+      requireCanonical?: undefined;
+    }
+  | {
+      blockNumber?: undefined;
+      /** Block tag to simulate against. Defaults to `latest`. */
+      blockTag?: BlockTag;
+      blockHash?: undefined;
+      requireCanonical?: undefined;
+    }
+  | {
+      blockNumber?: undefined;
+      blockTag?: undefined;
+      /** Historical block hash to simulate against (EIP-1898). */
+      blockHash: Hex;
+      /** Reject the hash if it is not on the canonical chain (EIP-1898). */
+      requireCanonical?: boolean;
+    };
+
 /** Shared per-call options for block selection, gas budget, and debug events. */
-type SimulationOptions = {
-  /** Historical block number to simulate against; if both block options are set, this wins. */
-  blockNumber?: bigint;
-  /** Block tag to simulate against when `blockNumber` is not set. */
-  blockTag?: BlockTag;
+type SimulationOptions = BlockOptions & {
   /** Gas budget for simulation RPC calls. Defaults to `DEFAULT_SIMULATION_GAS_LIMIT`. */
   gas?: bigint;
   /** Enables console logging or structured debug events for simulator RPC calls. */
@@ -160,12 +199,16 @@ export type NftReceipt = {
   tokenUri?: string;
 };
 
-/** Arguments for `TxSimulator.simulate`. */
-export type SimulateArgs = SimulationOptions & {
+/** Parameters for `TxSimulator.simulate`. */
+export type SimulateParameters = SimulationOptions & {
   /** Account being simulated; the ghost simulator bytecode is injected at this address. */
   from: Address;
-  /** One call or an ERC-5792-style sequential batch. Must contain at least one call. */
-  calls: readonly SimulatedCall[];
+  /**
+   * One call or an ERC-5792-style sequential batch. Must contain at least one call. Accepts
+   * viem's `Call` union — the same array passed to `sendCalls`/`simulateCalls`, including the
+   * `{ abi, functionName, args }` form.
+   */
+  calls: readonly Call[];
   /** Balances to observe. Use `[]` to execute without balance observations. */
   balanceQueries: readonly BalanceQuery[];
   /**
@@ -174,8 +217,8 @@ export type SimulateArgs = SimulationOptions & {
    */
   tokenSlotOverrides?: readonly TokenSlotOverride[];
   /**
-   * Native balance overrides applied before simulating. Duplicate accounts use the last amount.
-   * Query forged accounts if you want to observe them.
+   * Native balance overrides applied before simulating. Duplicate accounts are rejected with
+   * `InvalidSimulationInputError`. Query forged accounts if you want to observe them.
    */
   nativeBalanceOverrides?: readonly NativeBalanceOverride[];
   /**
@@ -187,32 +230,32 @@ export type SimulateArgs = SimulationOptions & {
   errorAbi?: Abi;
 };
 
-/** Arguments for `TxSimulator.balanceQueries.forUser`. */
-export type ForUserBalanceQueriesArgs = SimulationOptions & {
+/** Parameters for `TxSimulator.balanceQueries.forUser`. */
+export type ForUserBalanceQueriesParameters = SimulationOptions & {
   /** Account whose wallet-style balance queries should be discovered. */
   from: Address;
-  /** Calls whose access lists should be searched for token candidates. */
-  calls: readonly SimulatedCall[];
+  /** Calls whose access lists should be searched for token candidates. Accepts viem's `Call` union. */
+  calls: readonly Call[];
 };
 
-/** Arguments for `TxSimulator.tokenOverrides.forBalances`. */
-export type PrepareBalanceOverridesArgs = SimulationOptions & {
+/** Parameters for `TxSimulator.tokenOverrides.forBalances`. */
+export type PrepareBalanceOverridesParameters = SimulationOptions & {
   /** Account whose token balance overrides should be prepared. */
   from: Address;
   /** Tokens to prepare ERC-20-style balance overrides for. */
   tokens: readonly Address[];
 };
 
-/** Arguments for `TxSimulator.tokenOverrides.forAllowances`. */
-export type PrepareAllowanceOverridesArgs = SimulationOptions & {
+/** Parameters for `TxSimulator.tokenOverrides.forAllowances`. */
+export type PrepareAllowanceOverridesParameters = SimulationOptions & {
   /** Account whose allowance overrides should be prepared. */
   from: Address;
   /** Token/spender allowance pairs to prepare overrides for. */
   pairs: readonly AllowanceSlotPair[];
 };
 
-/** Arguments for `TxSimulator.tokenOverrides.forPermit2Allowances`. */
-export type ForPermit2AllowancesArgs = SimulationOptions & {
+/** Parameters for `TxSimulator.tokenOverrides.forPermit2Allowances`. */
+export type ForPermit2AllowancesParameters = SimulationOptions & {
   /** Owner account whose Permit2 internal allowances should be forged. */
   from: Address;
   /** Token/spender pairs to prepare Permit2 allowance overrides for. */
@@ -221,12 +264,15 @@ export type ForPermit2AllowancesArgs = SimulationOptions & {
   permit2Address?: Address;
 };
 
-/** Arguments for `TxSimulator.tokenOverrides.estimateRequirements`. */
-export type EstimateAssetRequirementsArgs = SimulationOptions & {
+/** Parameters for `TxSimulator.tokenOverrides.estimateRequirements`. */
+export type EstimateAssetRequirementsParameters = SimulationOptions & {
   /** Account whose balance and approval needs should be estimated. */
   from: Address;
-  /** One call or an ERC-5792-style sequential batch. Must contain at least one call. */
-  calls: readonly SimulatedCall[];
+  /**
+   * One call or an ERC-5792-style sequential batch. Must contain at least one call. Accepts
+   * viem's `Call` union.
+   */
+  calls: readonly Call[];
   /**
    * Permit2 singleton address; defaults to the canonical `0x0000...78BA3`. Permit2 measurement only
    * engages when this address is actually touched by the batch, so overriding it costs nothing on
@@ -237,18 +283,24 @@ export type EstimateAssetRequirementsArgs = SimulationOptions & {
   errorAbi?: Abi;
 };
 
-/** Arguments for `TxSimulator.gas.estimateBatch`. */
-export type EstimateBatchGasArgs = SimulationOptions & {
+/** Parameters for `TxSimulator.gas.estimateBatch`. */
+export type EstimateBatchGasParameters = SimulationOptions & {
   /** Account being simulated; the ghost simulator bytecode is injected at this address. */
   from: Address;
-  /** One call or an ERC-5792-style sequential batch. Must contain at least one call. */
-  calls: readonly SimulatedCall[];
+  /**
+   * One call or an ERC-5792-style sequential batch. Must contain at least one call. Accepts
+   * viem's `Call` union.
+   */
+  calls: readonly Call[];
   /**
    * Storage-slot overrides applied before measuring. Prepare with `tokenOverrides.*`: an unfunded
    * account cannot measure a swap, so forge the balances/allowances the batch needs first.
    */
   tokenSlotOverrides?: readonly TokenSlotOverride[];
-  /** Native balance overrides applied before measuring. Duplicate accounts use the last amount. */
+  /**
+   * Native balance overrides applied before measuring. Duplicate accounts are rejected with
+   * `InvalidSimulationInputError`.
+   */
   nativeBalanceOverrides?: readonly NativeBalanceOverride[];
 };
 
@@ -281,7 +333,8 @@ export type BatchGasEstimate = {
 
 /** Configuration for `TxSimulator.create`. */
 export type TxSimulatorConfig = {
-  client: PublicClient;
+  /** Any viem client with an RPC transport; calls route through `getAction`, so a `PublicClient` is not required. */
+  client: Client;
   /** Default gas budget for all calls; per-call `gas` wins. */
   gas?: bigint;
   /** Default debug setting for all calls; per-call `debug` wins. */

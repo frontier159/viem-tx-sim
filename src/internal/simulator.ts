@@ -8,6 +8,8 @@ import {
   size,
   zeroAddress,
 } from "viem";
+import { call } from "viem/actions";
+import { getAction } from "viem/utils";
 
 import type { RevertError, SimulatedCall, TokenSlotOverride } from "../types.js";
 import { InvalidSimulationInputError, StateOverrideUnsupportedError } from "../errors.js";
@@ -141,7 +143,11 @@ export async function runSimulator(
         },
       },
       () =>
-        args.client.call(
+        getAction(
+          args.client,
+          call,
+          "call",
+        )(
           buildCallParameters({
             account: args.from,
             to: args.from,
@@ -266,7 +272,11 @@ export async function runBatchGas(
         },
       },
       () =>
-        args.client.call(
+        getAction(
+          args.client,
+          call,
+          "call",
+        )(
           buildCallParameters({
             account: args.from,
             to: args.from,

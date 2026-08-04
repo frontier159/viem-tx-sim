@@ -1,0 +1,16 @@
+---
+"viem-tx-sim": minor
+---
+
+Aligns the public surface with viem conventions. Breaking changes:
+
+- The seven public parameter types are renamed to match viem's `*Parameters` house style: `SimulateArgs` → `SimulateParameters`, `ForUserBalanceQueriesArgs` → `ForUserBalanceQueriesParameters`, `PrepareBalanceOverridesArgs` → `PrepareBalanceOverridesParameters`, `PrepareAllowanceOverridesArgs` → `PrepareAllowanceOverridesParameters`, `ForPermit2AllowancesArgs` → `ForPermit2AllowancesParameters`, `EstimateAssetRequirementsArgs` → `EstimateAssetRequirementsParameters`, `EstimateBatchGasArgs` → `EstimateBatchGasParameters`. Migrate with a project-wide find-and-replace of each old name to its new one; no field or behavior changed.
+- `calls` on `simulate`, `balanceQueries.forUser`, `balanceQueries.discoverErc20s`, `tokenOverrides.estimateRequirements`, and `gas.estimateBatch` now accepts viem's `Call` union instead of this library's own shape — the same array you already pass to `sendCalls`/`simulateCalls`, including the `{ abi, functionName, args }` form and `dataSuffix`. `SimulatedCall` is no longer exported from the package root (it remains as the internal normalized shape); existing calls built as `{ to, data, value }` continue to work unchanged, since that shape is part of viem's `Call` union too.
+- `tokenSlotOverrides` and `nativeBalanceOverrides` no longer tolerate duplicates. A duplicate token+slot pair in `tokenSlotOverrides`, or a duplicate account in `nativeBalanceOverrides`, now throws `InvalidSimulationInputError` instead of silently keeping the last value — mirroring viem's own `AccountStateConflictError` for duplicate state-override accounts. Callers relying on last-wins merging must dedupe their input before calling `simulate`/`gas.estimateBatch`.
+- Per-call `blockNumber` and `blockTag` are now mutually exclusive, mirroring viem's `CallParameters`. Setting both is a type error instead of a documented precedence rule, so the ambiguous case is unrepresentable rather than silently resolved. Field names are unchanged — pass `blockNumber: 21_000_000n` to pin a block or `blockTag: "latest"` to float — and every public parameter type inherits the selector. Only code that set both fields at once needs to change.
+- The `viem` peer dependency floor rises from `^2.8.0` to `^2.50.0`. This is the first viem version whose `call` action supports the EIP-1898 `blockHash` block selector (see below); on older viem versions `blockHash` was silently swapped for `blockTag: "latest"` instead of erroring.
+
+Non-breaking additions:
+
+- `BlockOptions` gains a third, mutually exclusive branch: `blockHash` (+ optional `requireCanonical`), per EIP-1898. All three selectors are pairwise exclusive at the type level. Untyped JavaScript callers, who can still pass more than one, resolve by precedence `blockHash` > `blockNumber` > `blockTag`, mirroring viem's `formatBlockParameter`.
+- `TxSimulatorConfig.client` widens from viem's `PublicClient` to the base `Client` type, so minimal or custom-decorated clients work, not just full `PublicClient` instances. Internal `eth_call` sites now route through viem's `getAction`, which resolves to a client's own decorated method when present.

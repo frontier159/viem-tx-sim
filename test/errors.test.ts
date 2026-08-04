@@ -29,6 +29,39 @@ describe("error handling", () => {
     ).rejects.toBeInstanceOf(InvalidSimulationInputError);
   });
 
+  it("rejects duplicate tokenSlotOverrides entries with a typed input error", async () => {
+    const sim = simulatorFor({});
+    const slot = "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex;
+
+    await expect(
+      sim.simulate({
+        from,
+        calls: [{ to, data: "0x" }],
+        balanceQueries: [],
+        tokenSlotOverrides: [
+          { token, slot, amount: 1n },
+          { token, slot, amount: 2n },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(InvalidSimulationInputError);
+  });
+
+  it("rejects duplicate nativeBalanceOverrides entries with a typed input error", async () => {
+    const sim = simulatorFor({});
+
+    await expect(
+      sim.simulate({
+        from,
+        calls: [{ to, data: "0x" }],
+        balanceQueries: [],
+        nativeBalanceOverrides: [
+          { account: to, amount: 1n },
+          { account: to, amount: 2n },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(InvalidSimulationInputError);
+  });
+
   it("rejects unsupported access-list RPCs with a typed error", async () => {
     const sim = simulatorFor({
       eth_createAccessList: () => {
