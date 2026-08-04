@@ -28,23 +28,26 @@ jobs:
       - run: pnpm verify
       - name: committed artifacts are fresh
         run: git diff --exit-code -- src/generated
-      - name: types resolve from the packed tarball
-        run: pnpm exec attw --pack . --profile esm-only
       - name: packed tarball smoke test
         run: |
           pnpm pack --out /tmp/vts.tgz
           mkdir -p /tmp/vts-smoke && cd /tmp/vts-smoke
           npm init -y > /dev/null
           npm pkg set type=module > /dev/null
-          # Keep these pins in sync with package.json devDependency bumps.
-          npm install --ignore-scripts /tmp/vts.tgz viem@2.54.1 typescript@5.9.3 @types/node@20.19.43 > /dev/null
+          # viem and @types/node track package.json devDependency bumps.
+          # typescript does NOT: it pins the oldest TypeScript a consumer may use, so this
+          # proves our emitted .d.ts stays consumable below the version we build with.
+          npm install --ignore-scripts /tmp/vts.tgz viem@2.54.1 typescript@5.9.3 @types/node@24.13.3 > /dev/null
           cat > smoke.ts <<'EOF'
           import { TxSimulator, OVERRIDE_TOKEN_AMOUNT } from "viem-tx-sim";
           import { createPublicClient, http } from "viem";
           const sim = TxSimulator.create({ client: createPublicClient({ transport: http("http://127.0.0.1:1") }) });
           const _check: typeof sim.simulate = sim.simulate;
-          if (OVERRIDE_TOKEN_AMOUNT !== 10n ** 50n) throw new Error("constant");
+          if (OVERRIDE_TOKEN_AMOUNT !== 10n ** 45n) throw new Error("constant");
           console.log("smoke ok", typeof _check);
           EOF
+          # Resolve the published types both ways a consumer might: Node's own
+          # resolver, and a bundler's. These two lines replace the attw check.
           npx tsc --strict --module node16 --moduleResolution node16 --target es2022 --skipLibCheck --noEmit smoke.ts
+          npx tsc --strict --module preserve --moduleResolution bundler --target es2022 --skipLibCheck --noEmit smoke.ts
           node --input-type=module -e "import('viem-tx-sim').then(m => { if (!m.TxSimulator?.create) throw new Error('bad export'); console.log('runtime ok'); })"
