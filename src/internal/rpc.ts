@@ -3,34 +3,29 @@ import type {
   Address,
   BlockTag,
   CallParameters,
+  Client,
   Hex,
-  PublicClient,
   StateOverride,
 } from "viem";
 import { numberToHex } from "viem";
 
 import { ACCESS_LIST_GAS_LIMIT } from "../constants.js";
 import { AccessListUnsupportedError } from "../errors.js";
-import type { SimulationDebug, SimulationDebugEvent } from "../types.js";
+import type { BlockOptions, SimulationDebug, SimulationDebugEvent } from "../types.js";
 import { normalizeAddress } from "./data.js";
 import { DEBUG_STEPS } from "./debugSteps.js";
 import type { DebugStep } from "./debugSteps.js";
 
 // Internal RPC layer: shared argument types, call-shaping helpers, then RPC wrappers.
 // Add new RPC methods here so debug and infrastructure-error behavior stays consistent.
-export type BlockOptions = {
-  blockNumber?: bigint;
-  blockTag?: BlockTag;
-};
-
 /**
  * Attaches the bound viem client (and internal-only `accessListGas`) to public per-call args for
  * internal implementations.
  */
-export type ClientArgs = { client: PublicClient; accessListGas?: bigint };
+export type ClientArgs = { client: Client; accessListGas?: bigint };
 
 export type RpcCallArgs = {
-  client: PublicClient;
+  client: Client;
   gas?: bigint;
   /**
    * Explicit caller gas for `eth_createAccessList`. When absent the request uses
@@ -40,8 +35,17 @@ export type RpcCallArgs = {
   debug?: SimulationDebug;
 } & BlockOptions;
 
-/** Returns the block selector for RPC calls; `blockNumber` takes precedence over `blockTag`. */
+/**
+ * Returns the block selector for RPC calls. `BlockOptions` makes setting more than one selector
+ * unrepresentable in TypeScript; untyped JS callers resolve to one selector by precedence
+ * blockHash > blockNumber > blockTag, mirroring viem's own `formatBlockParameter`.
+ */
 export function blockOptionsSpread(args: BlockOptions): BlockOptions {
+  if (args.blockHash !== undefined) {
+    return args.requireCanonical !== undefined
+      ? { blockHash: args.blockHash, requireCanonical: args.requireCanonical }
+      : { blockHash: args.blockHash };
+  }
   return args.blockNumber !== undefined
     ? { blockNumber: args.blockNumber }
     : args.blockTag !== undefined
@@ -65,6 +69,13 @@ export function buildCallParameters(
     ...(args.stateOverride !== undefined ? { stateOverride: args.stateOverride } : {}),
     ...(args.gas !== undefined ? { gas: args.gas } : {}),
   };
+  if (args.blockHash !== undefined) {
+    return {
+      ...base,
+      blockHash: args.blockHash,
+      ...(args.requireCanonical !== undefined ? { requireCanonical: args.requireCanonical } : {}),
+    } satisfies CallParameters;
+  }
   return (
     args.blockNumber !== undefined
       ? { ...base, blockNumber: args.blockNumber }
@@ -79,6 +90,9 @@ type AccessListRpcRequest = {
   value?: Hex;
   gas?: Hex;
 };
+
+/** EIP-1898 block selector for the raw `eth_createAccessList` request; viem's own action has no blockHash support. */
+type AccessListBlockParam = Hex | BlockTag | { blockHash: Hex; requireCanonical?: boolean };
 
 type AccessListRpcResult = {
   accessList?: AccessList;
@@ -105,8 +119,17 @@ export async function createAccessList(
     ...(args.value !== undefined ? { value: numberToHex(args.value) } : {}),
     gas: numberToHex(gas),
   } satisfies AccessListRpcRequest;
-  const block =
-    args.blockNumber !== undefined ? numberToHex(args.blockNumber) : (args.blockTag ?? "latest");
+  const block: AccessListBlockParam =
+    args.blockHash !== undefined
+      ? {
+          blockHash: args.blockHash,
+          ...(args.requireCanonical !== undefined
+            ? { requireCanonical: args.requireCanonical }
+            : {}),
+        }
+      : args.blockNumber !== undefined
+        ? numberToHex(args.blockNumber)
+        : (args.blockTag ?? "latest");
 
   try {
     const result = await withRpcDebug(
@@ -165,13 +188,13 @@ export function isInsufficientFunds(cause: unknown): boolean {
 }
 
 async function requestAccessList(
-  client: PublicClient,
+  client: Client,
   request: AccessListRpcRequest,
-  block: Hex | BlockTag,
+  block: AccessListBlockParam,
 ): Promise<AccessListRpcResult> {
   return client.request<{
     Method: "eth_createAccessList";
-    Parameters: [transaction: AccessListRpcRequest, block: Hex | BlockTag];
+    Parameters: [transaction: AccessListRpcRequest, block: AccessListBlockParam];
     ReturnType: AccessListRpcResult;
   }>({
     method: "eth_createAccessList",

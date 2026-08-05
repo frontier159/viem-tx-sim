@@ -1,5 +1,7 @@
 import type { Address, Hex, StateOverride } from "viem";
 import { encodeFunctionData, erc20Abi } from "viem";
+import { call } from "viem/actions";
+import { getAction } from "viem/utils";
 
 import { StateOverrideUnsupportedError } from "../errors.js";
 import { addressKey } from "./data.js";
@@ -158,7 +160,11 @@ async function readUint256Call(
         },
       },
       () =>
-        args.client.call(
+        getAction(
+          args.client,
+          call,
+          "call",
+        )(
           buildCallParameters({
             account: args.account,
             to: args.to,

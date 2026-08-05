@@ -1,6 +1,11 @@
 import type { Address } from "viem";
 
-import type { BalanceQuery, ForUserBalanceQueriesArgs, SimulatedCall } from "../types.js";
+import type {
+  BalanceQuery,
+  ForUserBalanceQueriesParameters,
+  SimulatedCall,
+  WithNormalizedCalls,
+} from "../types.js";
 import { uniqueAddresses } from "./data.js";
 import type { ClientArgs } from "./rpc.js";
 import { blockOptionsSpread, isInsufficientFunds } from "./rpc.js";
@@ -9,7 +14,7 @@ import { discoverCandidateAddresses, runSimulator } from "./simulator.js";
 
 /** @internal Implements {@link TxSimulator.balanceQueries.forUser}. Prefer the instance API from the package root. */
 export async function forUserBalanceQueries(
-  args: ForUserBalanceQueriesArgs & ClientArgs,
+  args: WithNormalizedCalls<ForUserBalanceQueriesParameters> & ClientArgs,
 ): Promise<BalanceQuery[]> {
   const tokens = await discoverErc20s(args);
 
@@ -21,7 +26,7 @@ export async function forUserBalanceQueries(
 
 /** @internal Implements {@link TxSimulator.balanceQueries.discoverErc20s}. Prefer the instance API from the package root. */
 export async function discoverErc20s(
-  args: ForUserBalanceQueriesArgs & ClientArgs,
+  args: WithNormalizedCalls<ForUserBalanceQueriesParameters> & ClientArgs,
 ): Promise<Address[]> {
   const calls = args.calls.map((call) => ({
     to: call.to,

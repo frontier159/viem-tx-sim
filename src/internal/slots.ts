@@ -6,16 +6,18 @@ import {
   keccak256,
   parseAbi,
 } from "viem";
+import { call } from "viem/actions";
+import { getAction } from "viem/utils";
 
 import { OVERRIDE_TOKEN_AMOUNT } from "../constants.js";
 import type {
   AllowanceSlotPair,
-  ForPermit2AllowancesArgs,
+  ForPermit2AllowancesParameters,
   PreparedAllowanceOverrides,
   PreparedBalanceOverrides,
   PreparedPermit2Overrides,
-  PrepareAllowanceOverridesArgs,
-  PrepareBalanceOverridesArgs,
+  PrepareAllowanceOverridesParameters,
+  PrepareBalanceOverridesParameters,
   TokenSlotOverride,
 } from "../types.js";
 import { addressKey, getCallData, normalizeAddress, uint256Hex } from "./data.js";
@@ -44,7 +46,7 @@ type AllowanceSlotFact = SlotFact & {
 // Orchestration
 /** @internal Implements `TxSimulator.tokenOverrides.forBalances`. Prefer the instance API from the package root. */
 export async function prepareBalanceOverrides(
-  args: PrepareBalanceOverridesArgs & ClientArgs,
+  args: PrepareBalanceOverridesParameters & ClientArgs,
 ): Promise<PreparedBalanceOverrides> {
   const slots = await Promise.all(
     args.tokens.map((token) =>
@@ -68,7 +70,7 @@ export async function prepareBalanceOverrides(
 
 /** @internal Implements `TxSimulator.tokenOverrides.forAllowances`. Prefer the instance API from the package root. */
 export async function prepareAllowanceOverrides(
-  args: PrepareAllowanceOverridesArgs & ClientArgs,
+  args: PrepareAllowanceOverridesParameters & ClientArgs,
 ): Promise<PreparedAllowanceOverrides> {
   const slots = await prepareAllowanceOverridesWithInference({
     client: args.client,
@@ -252,7 +254,7 @@ type Permit2Allowance = { amount: bigint; expiration: bigint; nonce: bigint };
  * from the package root. Overridden slots target the Permit2 contract's storage, not the ERC-20.
  */
 export async function preparePermit2Overrides(
-  args: ForPermit2AllowancesArgs & ClientArgs,
+  args: ForPermit2AllowancesParameters & ClientArgs,
 ): Promise<PreparedPermit2Overrides> {
   const permit2 = normalizeAddress(args.permit2Address ?? CANONICAL_PERMIT2);
   const slots: TokenSlotOverride[] = [];
@@ -354,7 +356,11 @@ async function readPermit2Allowance(
         },
       },
       () =>
-        args.client.call(
+        getAction(
+          args.client,
+          call,
+          "call",
+        )(
           buildCallParameters({
             account: args.owner,
             to: args.permit2,

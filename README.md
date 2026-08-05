@@ -6,14 +6,14 @@ Preview transaction and batch balance changes with viem over JSON-RPC, without a
 [![CI](https://github.com/frontier159/viem-tx-sim/actions/workflows/ci.yml/badge.svg)](https://github.com/frontier159/viem-tx-sim/actions/workflows/ci.yml)
 [![MIT license](https://img.shields.io/npm/l/viem-tx-sim.svg)](./LICENSE)
 
-Pass your viem `PublicClient`, sender, and calldata to preview native and token balance changes before signing. Use the same API for one transaction or an ordered batch.
+Pass your viem client, sender, and calls to preview native and token balance changes before signing. Calls are viem's `Call` union, so `{ abi, functionName, args }` works as well as pre-encoded `data`. Use the same API for one transaction or an ordered batch.
 
 > [!IMPORTANT]
 > A simulation previews one RPC state snapshot. The signed transaction may execute against different state. Contracts can observe the injected code at `from`, so do not use the result as a security boundary.
 
 ## Before you install
 
-- **Runtime:** Node.js 20 or newer, ESM, and `viem` 2.8 or newer.
+- **Runtime:** Node.js 24 or newer, ESM, and `viem` 2.50.3 or newer. Any viem `Client` works; a `PublicClient` is not required. TypeScript is an optional peer at 5.9 or newer.
 - **RPC:** Requires `eth_call` with state overrides, and `eth_createAccessList` for discovery. Some RPC providers omit access lists when a probed call reverts.
 - **Scope:** Caller receives raw balance changes and reverts. Client handles token metadata, prices, gas estimation, transaction assembly, and permit signing.
 
@@ -31,6 +31,9 @@ Use the viem client, sender, and calls from your application. List the balances 
 import { TxSimulator } from "viem-tx-sim";
 
 const simulator = TxSimulator.create({ client });
+
+// Or hang it off your client, viem-extension style:
+const extended = client.extend((c) => ({ txSim: TxSimulator.create({ client: c }) }));
 
 const result = await simulator.simulate({
   from,
@@ -141,7 +144,7 @@ Two error bars apply, and both should be documented to consumers:
 - Supply signed permit calldata. Your application creates and signs permits.
 - `tokenSlotOverrides` amounts must be below `uint256.max`. Use `OVERRIDE_TOKEN_AMOUNT` when you construct overrides so allowance decrements and incoming transfers remain observable.
 
-To pin a multi-step workflow, pass the same fixed `blockNumber` to every discovery, preparation, and `simulate()` call. A moving tag such as `latest` can resolve to a different block on each RPC request.
+To pin a multi-step workflow, pass the same fixed `blockNumber` (or `blockHash`, per EIP-1898) to every discovery, preparation, and `simulate()` call. A moving tag such as `latest` can resolve to a different block on each RPC request. The three selectors are mutually exclusive: setting more than one is a type error.
 
 ## Public API
 
@@ -153,11 +156,13 @@ To pin a multi-step workflow, pass the same fixed `blockNumber` to every discove
 - `gas.estimateBatch()`
 - `DEFAULT_SIMULATION_GAS_LIMIT` and `OVERRIDE_TOKEN_AMOUNT`
 
+`calls` accepts viem's `Call` union — the same array you pass to `sendCalls`, including the `{ abi, functionName, args }` form. Duplicate `tokenSlotOverrides` slots or `nativeBalanceOverrides` accounts are rejected with `InvalidSimulationInputError`.
+
 The package exports its public argument/result types and typed error classes. TypeScript declarations are the detailed reference.
 
 ## Development
 
-Use Node.js 20+, pnpm 10, and Foundry nightly `nightly-7debd6d47628c5551837534aee507dbf552d5889`.
+Use Node.js 24+, pnpm 10, and Foundry nightly `nightly-7debd6d47628c5551837534aee507dbf552d5889`.
 
 Foundry v1.7.1 lacks the access-list-on-revert behavior required by the test suite. Replace the nightly pin with the first stable release newer than v1.7.1.
 
