@@ -1,5 +1,30 @@
 # viem-tx-sim
 
+## 0.4.0
+
+### Minor Changes
+
+- [#24](https://github.com/frontier159/viem-tx-sim/pull/24) [`95c3fab`](https://github.com/frontier159/viem-tx-sim/commit/95c3fabd54b575b473c7ab22b8c2a14852d9ccb1) Thanks [@frontier159](https://github.com/frontier159)! - Raises the Node.js engines floor from `>=20` to `>=24`, and moves `@types/node` to match. Node 20 reached end of life on 2026-04-30; the floor now matches the version CI builds and tests with. Consumers on Node 20 or 22 must upgrade to Node 24 or newer. No source change: nothing in the library uses a Node-24-only API.
+
+- [#24](https://github.com/frontier159/viem-tx-sim/pull/24) [`a8570c8`](https://github.com/frontier159/viem-tx-sim/commit/a8570c8d879cbd07456539337d9be86d0012002f) Thanks [@frontier159](https://github.com/frontier159)! - Aligns the public surface with viem conventions. Breaking changes:
+
+  - The seven public parameter types are renamed to match viem's `*Parameters` house style: `SimulateArgs` → `SimulateParameters`, `ForUserBalanceQueriesArgs` → `ForUserBalanceQueriesParameters`, `PrepareBalanceOverridesArgs` → `PrepareBalanceOverridesParameters`, `PrepareAllowanceOverridesArgs` → `PrepareAllowanceOverridesParameters`, `ForPermit2AllowancesArgs` → `ForPermit2AllowancesParameters`, `EstimateAssetRequirementsArgs` → `EstimateAssetRequirementsParameters`, `EstimateBatchGasArgs` → `EstimateBatchGasParameters`. Migrate with a project-wide find-and-replace of each old name to its new one; no field or behavior changed.
+  - `calls` on `simulate`, `balanceQueries.forUser`, `balanceQueries.discoverErc20s`, `tokenOverrides.estimateRequirements`, and `gas.estimateBatch` now accepts viem's `Call` union instead of this library's own shape — the same array you already pass to `sendCalls`/`simulateCalls`, including the `{ abi, functionName, args }` form and `dataSuffix`. `SimulatedCall` is no longer exported from the package root (it remains as the internal normalized shape); existing calls built as `{ to, data, value }` continue to work unchanged, since that shape is part of viem's `Call` union too.
+  - `tokenSlotOverrides` and `nativeBalanceOverrides` no longer tolerate duplicates. A duplicate token+slot pair in `tokenSlotOverrides`, or a duplicate account in `nativeBalanceOverrides`, now throws `InvalidSimulationInputError` instead of silently keeping the last value — mirroring viem's own `AccountStateConflictError` for duplicate state-override accounts. Callers relying on last-wins merging must dedupe their input before calling `simulate`/`gas.estimateBatch`.
+  - Per-call `blockNumber` and `blockTag` are now mutually exclusive, mirroring viem's `CallParameters`. Setting both is a type error instead of a documented precedence rule, so the ambiguous case is unrepresentable rather than silently resolved. Field names are unchanged — pass `blockNumber: 21_000_000n` to pin a block or `blockTag: "latest"` to float — and every public parameter type inherits the selector. Only code that set both fields at once needs to change.
+  - The `viem` peer dependency floor rises from `^2.8.0` to `^2.50.3`. EIP-1898 `blockHash` support landed in viem's `call` action in the 2.50.0 release, and 2.50.3 is the first published version carrying it (2.50.0 through 2.50.2 were never released to npm). On older viem, a `blockHash` was silently swapped for `blockTag: "latest"` instead of erroring.
+
+  Non-breaking additions:
+
+  - `BlockOptions` gains a third, mutually exclusive branch: `blockHash` (+ optional `requireCanonical`), per EIP-1898. All three selectors are pairwise exclusive at the type level. Untyped JavaScript callers, who can still pass more than one, resolve by precedence `blockHash` > `blockNumber` > `blockTag`, mirroring viem's `formatBlockParameter`.
+  - `TxSimulatorConfig.client` widens from viem's `PublicClient` to the base `Client` type, so minimal or custom-decorated clients work, not just full `PublicClient` instances. Internal `eth_call` sites now route through viem's `getAction`, which resolves to a client's own decorated method when present.
+
+### Patch Changes
+
+- [#24](https://github.com/frontier159/viem-tx-sim/pull/24) [`95c3fab`](https://github.com/frontier159/viem-tx-sim/commit/95c3fabd54b575b473c7ab22b8c2a14852d9ccb1) Thanks [@frontier159](https://github.com/frontier159)! - Builds the published JavaScript and type declarations with the TypeScript 7 native compiler (`typescript` devDependency `^7.0.2`). No source, API, or tsconfig change. The emitted declarations stay consumable by older TypeScript: CI typechecks the packed tarball against TypeScript 5.9, and that pin is deliberately held below the build version.
+
+- [#24](https://github.com/frontier159/viem-tx-sim/pull/24) [`95c3fab`](https://github.com/frontier159/viem-tx-sim/commit/95c3fabd54b575b473c7ab22b8c2a14852d9ccb1) Thanks [@frontier159](https://github.com/frontier159)! - Declares `typescript` as an optional peer dependency at `>=5.9`. That is the oldest TypeScript CI proves the published declarations are consumable by: the declarations are built with TypeScript 7, then type-checked from a consumer file compiled with TypeScript 5.9 against the packed tarball. The floor was already real policy but was expressed only in a CI pin; consumers can now see it in the manifest. TypeScript stays optional, so JavaScript consumers are unaffected.
+
 ## 0.3.0
 
 ### Minor Changes
