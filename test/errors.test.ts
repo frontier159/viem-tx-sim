@@ -31,7 +31,7 @@ describe("error handling", () => {
 
   it("rejects duplicate tokenSlotOverrides entries with a typed input error", async () => {
     const sim = simulatorFor({});
-    const slot = "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex;
+    const slot = "0x0000000000000000000000000000000000000000000000000000000000000000" satisfies Hex;
 
     await expect(
       sim.simulate({
@@ -120,7 +120,7 @@ describe("error handling", () => {
   });
 
   it("rejects forBalances with a typed error when the sentinel-verify eth_call fails", async () => {
-    const slot = "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex;
+    const slot = "0x0000000000000000000000000000000000000000000000000000000000000000" satisfies Hex;
     const sim = simulatorFor({
       eth_createAccessList: () => ({
         accessList: [{ address: token, storageKeys: [slot] }],
@@ -149,7 +149,7 @@ describe("error handling", () => {
   });
 
   it("treats a reverting balance-slot read as unresolved rather than throwing (control)", async () => {
-    const slot = "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex;
+    const slot = "0x0000000000000000000000000000000000000000000000000000000000000000" satisfies Hex;
     const sim = simulatorFor({
       eth_createAccessList: () => ({
         accessList: [{ address: token, storageKeys: [slot] }],
@@ -194,7 +194,7 @@ describe("error handling", () => {
   });
 
   it("treats short probe returndata as an unresolved balance slot", async () => {
-    const slot = "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex;
+    const slot = "0x0000000000000000000000000000000000000000000000000000000000000000" satisfies Hex;
     const sim = simulatorFor({
       eth_createAccessList: () => ({
         accessList: [{ address: token, storageKeys: [slot] }],

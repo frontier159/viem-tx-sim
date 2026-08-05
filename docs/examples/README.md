@@ -1,6 +1,6 @@
 # Examples
 
-These examples start from the data a wallet or application already has: a viem client, the sender address, and one or more encoded calls. They use a `PublicClient`, but any viem `Client` works.
+These examples start from the data a wallet or application already has: a viem client, the sender address, and one or more calls. They use a `PublicClient` and pre-encoded `data`, but any viem `Client` works and `calls` accepts viem's full `Call` union, including the `{ abi, functionName, args }` form.
 
 Create a simulator once for that client:
 

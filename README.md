@@ -6,14 +6,14 @@ Preview transaction and batch balance changes with viem over JSON-RPC, without a
 [![CI](https://github.com/frontier159/viem-tx-sim/actions/workflows/ci.yml/badge.svg)](https://github.com/frontier159/viem-tx-sim/actions/workflows/ci.yml)
 [![MIT license](https://img.shields.io/npm/l/viem-tx-sim.svg)](./LICENSE)
 
-Pass your viem client, sender, and calldata to preview native and token balance changes before signing. Use the same API for one transaction or an ordered batch.
+Pass your viem client, sender, and calls to preview native and token balance changes before signing. Calls are viem's `Call` union, so `{ abi, functionName, args }` works as well as pre-encoded `data`. Use the same API for one transaction or an ordered batch.
 
 > [!IMPORTANT]
 > A simulation previews one RPC state snapshot. The signed transaction may execute against different state. Contracts can observe the injected code at `from`, so do not use the result as a security boundary.
 
 ## Before you install
 
-- **Runtime:** Node.js 24 or newer, ESM, and `viem` 2.50 or newer. Any viem `Client` works; a `PublicClient` is not required. TypeScript is an optional peer at 5.9 or newer.
+- **Runtime:** Node.js 24 or newer, ESM, and `viem` 2.50.3 or newer. Any viem `Client` works; a `PublicClient` is not required. TypeScript is an optional peer at 5.9 or newer.
 - **RPC:** Requires `eth_call` with state overrides, and `eth_createAccessList` for discovery. Some RPC providers omit access lists when a probed call reverts.
 - **Scope:** Caller receives raw balance changes and reverts. Client handles token metadata, prices, gas estimation, transaction assembly, and permit signing.
 
