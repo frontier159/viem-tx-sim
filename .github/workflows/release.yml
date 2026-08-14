@@ -42,7 +42,7 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - name: create or update the Version Packages PR
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        uses: changesets/action@22ccf9aa43179fe9e27dc62e575971d28cce197c # v2.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -66,7 +66,7 @@ jobs:
           version: nightly-7debd6d47628c5551837534aee507dbf552d5889
       - run: pnpm install --frozen-lockfile
       - name: publish to npm
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        uses: changesets/action@22ccf9aa43179fe9e27dc62e575971d28cce197c # v2.0.0
         with:
           publish: pnpm release
         env:
