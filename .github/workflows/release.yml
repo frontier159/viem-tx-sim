@@ -61,7 +61,7 @@ jobs:
           node-version: 24.18.0
           registry-url: https://registry.npmjs.org
       - run: corepack enable
-      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
         with:
           version: nightly-7debd6d47628c5551837534aee507dbf552d5889
       - run: pnpm install --frozen-lockfile

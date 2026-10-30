@@ -19,7 +19,7 @@ jobs:
           # keep in lockstep with release.yml
           node-version: 24.18.0
           cache: pnpm
-      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
         with:
           # Update to stable when a new release > v1.7.1 is out
           # Anvil fork tests depend on https://github.com/foundry-rs/foundry/pull/14569
